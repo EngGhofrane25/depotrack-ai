@@ -1,0 +1,4 @@
+ECOMMERCE_PRODUCT_IMAGES/
+backend/venv/
+__pycache__/
+stock.db
