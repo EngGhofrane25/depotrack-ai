@@ -1,0 +1,150 @@
+import cv2
+import numpy as np
+from ultralytics import YOLO
+import config
+
+# ==========================================
+# GÜN 6: KUTU TİPİ TANIMA (MOCK Sınıflandırma)
+# ==========================================
+
+def classify_box(box_img):
+    """
+    Şimdilik (Geçici) Sınıflandırma Fonksiyonu.
+    Kutunun ortalama rengine bakarak 5 üründen birini tahmin eder.
+    Gerçek model geldiğinde bu fonksiyonun içi değiştirilecektir.
+    """
+    # Görüntünün ortalama BGR (Mavi, Yeşil, Kırmızı) renklerini alıyoruz
+    avg_color_per_row = np.average(box_img, axis=0)
+    avg_color = np.average(avg_color_per_row, axis=0)
+    
+    b, g, r = avg_color
+    
+    # Renge göre çok basit bir mantıkla ürün uyduruyoruz
+    if r > b and r > g:
+        return 2  # Gıda (Kırmızı ağırlıklıysa)
+    elif b > r and b > g:
+        return 1  # Elektronik (Mavi ağırlıklıysa)
+    elif g > r and g > b:
+        return 5  # Temizlik (Yeşil ağırlıklıysa)
+    elif r > 150 and g > 150 and b < 100:
+        return 4  # Kırtasiye (Sarı/Turuncu ağırlıklıysa)
+    else:
+        return 3  # Tekstil (Diğer renkler)
+
+
+def main():
+    print("[BİLGİ] YOLO modeli yükleniyor...")
+    model = YOLO(config.YOLO_MODEL_PATH)
+
+    print(f"[BİLGİ] Kamera başlatılıyor (Kaynak: {config.CAMERA_SOURCE})...")
+    cap = cv2.VideoCapture(config.CAMERA_SOURCE)
+
+    if not cap.isOpened():
+        print("[HATA] Kamera açılamadı!")
+        return
+
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    LINE_Y = h // 2 
+
+    # Videoyu kaydetmek için VideoWriter
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter('output.mp4', fourcc, fps, (w, h))
+
+    object_states = {}
+
+    print("[BİLGİ] Görüntü akışı ve kayıt başladı (output.mp4).")
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        cv2.line(frame, (0, LINE_Y), (w, LINE_Y), (255, 0, 0), 2)
+        cv2.putText(frame, "REFERANS CIZGISI", (10, LINE_Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+        results = model.track(frame, persist=True, verbose=False)
+
+        for r in results:
+            boxes = r.boxes
+            
+            if boxes.id is None:
+                continue
+                
+            for i, box in enumerate(boxes):
+                x1, y1, x2, y2 = box.xyxy[0]
+                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                
+                track_id = int(boxes.id[i])
+
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+                
+                cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+                # ==========================================
+                # GÜN 6: KIRPMA VE SINIFLANDIRMA (YENİ EKLENDİ)
+                # ==========================================
+                # Hata vermemesi için koordinatları ekran sınırlarında tutuyoruz
+                crop_y1 = max(0, y1)
+                crop_y2 = min(h, y2)
+                crop_x1 = max(0, x1)
+                crop_x2 = min(w, x2)
+                
+                # Kutuyu orijinal çerçeveden kırpıyoruz (Crop)
+                box_img = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                
+                # Çok küçük veya geçersiz kırpmaları yoksay
+                if box_img.size > 0:
+                    product_id = classify_box(box_img)
+                    product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
+                else:
+                    product_id = 0
+                    product_name = "Bilinmeyen"
+                
+                # ID ve Sınıfı Ekrana Yazdır
+                text = f"ID:{track_id} - {product_name}"
+                cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                # ==========================================
+                # GİRİŞ / ÇIKIŞ (IN/OUT) MANTIĞI
+                # ==========================================
+                current_state = 0 if center_y < LINE_Y else 1
+
+                if track_id not in object_states:
+                    object_states[track_id] = current_state
+                else:
+                    previous_state = object_states[track_id]
+                    
+                    if previous_state == 0 and current_state == 1:
+                        # GÜN 6: Artık hangi ürünün girdiğini de terminale yazıyoruz!
+                        print(f"✅ [BİLGİ] {product_name} (ID: {track_id}) DEPOYA GİRDİ!")
+                        object_states[track_id] = current_state 
+                        
+                        # TODO: Backend İstek Yeri
+                        # payload = {"tracking_id": track_id, "product_id": product_id, "direction": "IN"}
+                        # requests.post(f"{config.BACKEND_API_URL}/events", json=payload)
+                        
+                    elif previous_state == 1 and current_state == 0:
+                        print(f"❌ [BİLGİ] {product_name} (ID: {track_id}) DEPODAN ÇIKTI!")
+                        object_states[track_id] = current_state 
+                        
+                        # TODO: Backend İstek Yeri
+                        # payload = {"tracking_id": track_id, "product_id": product_id, "direction": "OUT"}
+                        # requests.post(f"{config.BACKEND_API_URL}/events", json=payload)
+
+        cv2.imshow("Depo Stok Takip - Tracking & Classification", frame)
+        out.write(frame) # İşlenmiş kareyi videoya kaydet
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    out.release() # Video dosyasını kapat
+    cv2.destroyAllWindows()
+    print("[BİLGİ] Program sonlandırıldı. Çıktı 'output.mp4' olarak kaydedildi.")
+
+if __name__ == "__main__":
+    main()
