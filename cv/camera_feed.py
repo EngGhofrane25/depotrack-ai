@@ -53,6 +53,12 @@ def classify_box(box_img):
         return 0
         
     results = classifier_model(box_img, verbose=False)
+    
+    # Güven skorunu kontrol et (Düşükse Bilinmeyen de)
+    conf = float(results[0].probs.top1conf)
+    if conf < 0.40:
+        return 0 # Güven düşükse bilinmeyen kabul et
+        
     top1_id = int(results[0].probs.top1)
     class_name = results[0].names[top1_id].lower()
     
@@ -106,6 +112,11 @@ def main():
             boxes = r.boxes
                 
             for i, box in enumerate(boxes):
+                # GÜN 15 (HATA DÜZELTME): İnsanları (Sizi) veya eli kutu sanmasını engelle!
+                # YOLOv8'de class 0 'insan' demektir. Eğer insan gördüyse hiç hesaba katma, atla.
+                if int(box.cls[0]) == 0:
+                    continue
+                    
                 x1, y1, x2, y2 = box.xyxy[0]
                 x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
