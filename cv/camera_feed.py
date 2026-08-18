@@ -40,32 +40,29 @@ def video_feed():
 threading.Thread(target=app.run, kwargs={"host": "0.0.0.0", "port": 5000, "debug": False, "use_reloader": False}, daemon=True).start()
 
 # ==========================================
-# GÜN 6: KUTU TİPİ TANIMA (MOCK Sınıflandırma)
+# GÜN 6: KUTU TİPİ TANIMA (YAPAY ZEKA ENTEGRE EDİLDİ)
 # ==========================================
+print("[BİLGİ] Özel Sınıflandırma Modeli yükleniyor...")
+classifier_model = YOLO(config.CLASSIFIER_MODEL_PATH)
 
 def classify_box(box_img):
     """
-    Şimdilik (Geçici) Sınıflandırma Fonksiyonu.
-    Kutunun ortalama rengine bakarak 5 üründen birini tahmin eder.
-    Gerçek model geldiğinde bu fonksiyonun içi değiştirilecektir.
+    Kutuyu kırpılmış görüntü üzerinden özel YoloV8-cls modeli ile sınıflandırır.
     """
-    # Görüntünün ortalama BGR (Mavi, Yeşil, Kırmızı) renklerini alıyoruz
-    avg_color_per_row = np.average(box_img, axis=0)
-    avg_color = np.average(avg_color_per_row, axis=0)
+    if box_img.size == 0:
+        return 0
+        
+    results = classifier_model(box_img, verbose=False)
+    top1_id = int(results[0].probs.top1)
+    class_name = results[0].names[top1_id].lower()
     
-    b, g, r = avg_color
+    if "gida" in class_name: return 2
+    elif "elektronik" in class_name: return 1
+    elif "temizlik" in class_name: return 5
+    elif "kirtasiye" in class_name: return 4
+    elif "tekstil" in class_name: return 3
     
-    # Renge göre çok basit bir mantıkla ürün uyduruyoruz
-    if r > b and r > g:
-        return 2  # Gıda (Kırmızı ağırlıklıysa)
-    elif b > r and b > g:
-        return 1  # Elektronik (Mavi ağırlıklıysa)
-    elif g > r and g > b:
-        return 5  # Temizlik (Yeşil ağırlıklıysa)
-    elif r > 150 and g > 150 and b < 100:
-        return 4  # Kırtasiye (Sarı/Turuncu ağırlıklıysa)
-    else:
-        return 3  # Tekstil (Diğer renkler)
+    return 0
 
 
 def main():
