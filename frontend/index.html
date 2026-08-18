@@ -30,6 +30,22 @@
 
     <main class="dashboard-container">
         
+        <!-- Palet Mal Kabul Modülü -->
+        <section class="pallet-section box-shadow" style="background-color: #f0f7ff; border-left: 5px solid #1976d2; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div>
+                    <h3 style="color: #1976d2; margin-top: 0; margin-bottom: 10px;">📦 Palet / Kamyon Mal Kabul Modu</h3>
+                    <p style="margin: 0; font-size: 14px; color: #555;">Kameradan geçen ürünlerin SKT'sini topluca ayarlayın.</p>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <div id="pallet-status-badge" style="padding: 5px 10px; border-radius: 4px; background-color: #e0e0e0; font-weight: bold; font-size: 14px;">PASİF</div>
+                    <input type="date" id="pallet-date-input" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                    <button id="btn-start-pallet" class="btn" style="background-color: #2e7d32; color: white;">Alımı Başlat</button>
+                    <button id="btn-stop-pallet" class="btn" style="background-color: #d32f2f; color: white; display: none;">Alımı Bitir</button>
+                </div>
+            </div>
+        </section>
+        
         <!-- SKT Uyarı Modülü -->
         <section class="expiration-alerts-section" id="expiration-alerts-container" style="display: none; margin-bottom: 20px;">
             <div class="box-shadow" style="background-color: #fff3f3; border-left: 5px solid #d32f2f; border-radius: 8px; padding: 15px;">
@@ -92,6 +108,30 @@
                 </ul>
             </div>
 
+        </section>
+        
+        <!-- Tüm SKT'ler ve İmha Paneli -->
+        <section class="all-batches-section box-shadow" style="margin-top: 20px; padding: 15px; border-radius: 8px; background-color: #fff;">
+            <div class="section-header">
+                <h2>Tüm Partiler ve SKT Yönetimi (İmha)</h2>
+            </div>
+            <div style="overflow-x:auto;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;" id="batches-table">
+                    <thead>
+                        <tr style="border-bottom: 2px solid #eee;">
+                            <th style="padding: 10px;">Batch ID</th>
+                            <th style="padding: 10px;">Ürün</th>
+                            <th style="padding: 10px;">Miktar</th>
+                            <th style="padding: 10px;">SKT</th>
+                            <th style="padding: 10px;">Durum</th>
+                            <th style="padding: 10px;">İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="batches-list">
+                        <!-- JS ile dolacak -->
+                    </tbody>
+                </table>
+            </div>
         </section>
 
     </main>

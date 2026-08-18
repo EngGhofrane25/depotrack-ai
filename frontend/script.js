@@ -125,13 +125,21 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Loglar çekilemedi:", error);
         }
 
-        // 3. SKT Uyarılarını Çek
+        // 3. SKT Uyarılarını ve Tüm Tabloyu Çek
         try {
             const expRes = await fetch("http://localhost:8000/expirations");
             const expData = await expRes.json();
             updateExpirations(expData);
+            if (typeof renderAllBatches === "function") {
+                renderAllBatches(expData);
+            }
         } catch (error) {
             console.error("SKT verileri çekilemedi:", error);
+        }
+        
+        // 4. Palet Durumunu Güncelle
+        if (typeof checkPalletStatus === "function") {
+            checkPalletStatus();
         }
     }
 
@@ -151,4 +159,123 @@ document.addEventListener("DOMContentLoaded", () => {
             window.open("http://localhost:8000/report", "_blank");
         });
     }
+
+    // ==========================================
+    // GÜN 15: PALET MODU VE İMHA (WASTE) YÖNETİMİ
+    // ==========================================
+
+    const btnStartPallet = document.getElementById("btn-start-pallet");
+    const btnStopPallet = document.getElementById("btn-stop-pallet");
+    const inputPalletDate = document.getElementById("pallet-date-input");
+    const badgePalletStatus = document.getElementById("pallet-status-badge");
+    const batchesList = document.getElementById("batches-list");
+
+    if (btnStartPallet) {
+        btnStartPallet.addEventListener("click", async () => {
+            const dateValue = inputPalletDate.value;
+            if (!dateValue) {
+                alert("Lütfen önce bir tarih seçin!");
+                return;
+            }
+            const dateObj = new Date(dateValue);
+            try {
+                await fetch("http://localhost:8000/pallet/start", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ expiration_date: dateObj.toISOString() })
+                });
+                checkPalletStatus();
+            } catch (e) {
+                console.error("Palet başlatılamadı:", e);
+            }
+        });
+    }
+
+    if (btnStopPallet) {
+        btnStopPallet.addEventListener("click", async () => {
+            try {
+                await fetch("http://localhost:8000/pallet/stop", { method: "POST" });
+                checkPalletStatus();
+            } catch (e) {
+                console.error("Palet durdurulamadı:", e);
+            }
+        });
+    }
+
+    window.checkPalletStatus = async function() {
+        if (!badgePalletStatus) return;
+        try {
+            const res = await fetch("http://localhost:8000/pallet/status");
+            const data = await res.json();
+            if (data.status === "active") {
+                badgePalletStatus.innerText = "AKTİF (Tarih: " + new Date(data.expiration_date).toLocaleDateString("tr-TR") + ")";
+                badgePalletStatus.style.backgroundColor = "#4caf50";
+                badgePalletStatus.style.color = "white";
+                btnStartPallet.style.display = "none";
+                btnStopPallet.style.display = "inline-block";
+                inputPalletDate.disabled = true;
+            } else {
+                badgePalletStatus.innerText = "PASİF";
+                badgePalletStatus.style.backgroundColor = "#e0e0e0";
+                badgePalletStatus.style.color = "black";
+                btnStartPallet.style.display = "inline-block";
+                btnStopPallet.style.display = "none";
+                inputPalletDate.disabled = false;
+            }
+        } catch (e) {
+            console.error("Palet durumu alınamadı:", e);
+        }
+    };
+
+    window.wasteBatch = async function(batchId) {
+        if (!confirm("Bu partiyi imha etmek (çöpe atmak) istediğinize emin misiniz? Stoklardan silinecektir.")) {
+            return;
+        }
+        try {
+            await fetch(`http://localhost:8000/batches/${batchId}/waste`, { method: "POST" });
+            fetchLiveStock(); // Tabloyu anında yenile
+        } catch (e) {
+            console.error("İmha işlemi başarısız:", e);
+        }
+    };
+
+    window.renderAllBatches = function(expirations) {
+        if (!batchesList) return;
+        batchesList.innerHTML = "";
+        
+        if (expirations.length === 0) {
+            batchesList.innerHTML = `<tr><td colspan="6" style="padding: 10px; text-align: center;">Depoda kayıtlı koli bulunmamaktadır.</td></tr>`;
+            return;
+        }
+        
+        expirations.forEach(exp => {
+            const tr = document.createElement("tr");
+            tr.style.borderBottom = "1px solid #eee";
+            
+            let statusText = "Güvenli";
+            let statusColor = "green";
+            if (exp.status === "expired") {
+                statusText = "Süresi Geçmiş!";
+                statusColor = "red";
+            } else if (exp.status === "danger") {
+                statusText = "Kritik";
+                statusColor = "darkorange";
+            } else if (exp.status === "warning") {
+                statusText = "Yaklaşıyor";
+                statusColor = "#fbc02d";
+            }
+            
+            tr.innerHTML = `
+                <td style="padding: 10px;">#${exp.batch_id}</td>
+                <td style="padding: 10px; font-weight: bold;">${exp.product_name}</td>
+                <td style="padding: 10px;">${exp.quantity} Adet</td>
+                <td style="padding: 10px;">${exp.expiration_date}</td>
+                <td style="padding: 10px; color: ${statusColor}; font-weight: bold;">${statusText} (${exp.days_left} gün)</td>
+                <td style="padding: 10px;">
+                    <button onclick="wasteBatch(${exp.batch_id})" style="background-color: #d32f2f; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">İmha Et</button>
+                </td>
+            `;
+            batchesList.appendChild(tr);
+        });
+    };
 });

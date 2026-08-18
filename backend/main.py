@@ -65,6 +65,12 @@ class ManualStockPayload(BaseModel):
 class UpdateBatchPayload(BaseModel):
     expiration_date: datetime
 
+class PalletPayload(BaseModel):
+    expiration_date: datetime
+
+# Global State for Active Pallet Entry Mode
+active_pallet_date = None
+
 # ==========================================
 # API UÇLARI
 # ==========================================
@@ -105,8 +111,13 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
             new_movement = models.Movement(product_id=event.product_id, movement_type="IN", box_count=1)
             db.add(new_movement)
             
-            # FEFO: Otomatik SKT Atama (Varsayılan gün kadar sonrası)
-            exp_date = datetime.now() + timedelta(days=product.expiration_days)
+            # FEFO: Otomatik SKT Atama (Aktif palet tarihi varsa onu kullan, yoksa varsayılan)
+            global active_pallet_date
+            if active_pallet_date:
+                exp_date = active_pallet_date
+            else:
+                exp_date = datetime.now() + timedelta(days=product.expiration_days)
+                
             new_batch = models.Batch(product_id=event.product_id, quantity=1, expiration_date=exp_date)
             db.add(new_batch)
             
@@ -161,7 +172,12 @@ def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
         db.add(new_movement)
         
         # FEFO: Batch oluştur
-        exp_date = datetime.now() + timedelta(days=product.expiration_days)
+        global active_pallet_date
+        if active_pallet_date:
+            exp_date = active_pallet_date
+        else:
+            exp_date = datetime.now() + timedelta(days=product.expiration_days)
+            
         new_batch = models.Batch(product_id=payload.product_id, quantity=payload.quantity, expiration_date=exp_date)
         db.add(new_batch)
         db.commit()
@@ -262,3 +278,42 @@ def download_report(db: Session = Depends(get_db)):
         product_name = product.name if product else "Bilinmeyen"
         writer.writerow([m.id, m.product_id, product_name, m.movement_type, m.box_count, m.timestamp.isoformat() if m.timestamp else ""])
     return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="stok_hareket_raporu.csv"'})
+
+# ==========================================
+# PALET VE İMHA (WASTE) ENDPOINT'LERİ
+# ==========================================
+
+@app.post("/pallet/start")
+def start_pallet(payload: PalletPayload):
+    global active_pallet_date
+    active_pallet_date = payload.expiration_date
+    return {"status": "success", "active_date": active_pallet_date.isoformat()}
+
+@app.post("/pallet/stop")
+def stop_pallet():
+    global active_pallet_date
+    active_pallet_date = None
+    return {"status": "success"}
+
+@app.get("/pallet/status")
+def get_pallet_status():
+    global active_pallet_date
+    if active_pallet_date:
+        return {"status": "active", "expiration_date": active_pallet_date.isoformat()}
+    return {"status": "inactive"}
+
+@app.post("/batches/{batch_id}/waste")
+def waste_batch(batch_id: int, db: Session = Depends(get_db)):
+    batch = db.query(models.Batch).filter(models.Batch.id == batch_id).first()
+    if not batch or batch.quantity <= 0:
+        raise HTTPException(status_code=404, detail="Batch not found or empty")
+        
+    stock = db.query(models.Stock).filter(models.Stock.product_id == batch.product_id).first()
+    if stock:
+        stock.warehouse_quantity -= batch.quantity
+        new_movement = models.Movement(product_id=batch.product_id, movement_type="WASTE", box_count=batch.quantity)
+        db.add(new_movement)
+        
+    batch.quantity = 0
+    db.commit()
+    return {"status": "success"}
