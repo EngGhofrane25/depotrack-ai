@@ -136,10 +136,14 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
             console.error("SKT verileri çekilemedi:", error);
         }
-        
         // 4. Palet Durumunu Güncelle
         if (typeof checkPalletStatus === "function") {
             checkPalletStatus();
+        }
+        
+        // 5. Kritik Stok Uyarılarını Çek
+        if (typeof checkLowStock === "function") {
+            checkLowStock();
         }
     }
 
@@ -277,5 +281,98 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
             batchesList.appendChild(tr);
         });
+    };
+
+    // ==========================================
+    // GÜN 16: KRİTİK STOK VE TOPTANCI SİPARİŞİ
+    // ==========================================
+    
+    // Oturum boyunca sipariş verilen ürünleri tutalım ki tekrar tekrar buton çıkmasın
+    const orderedProductsThisSession = new Set();
+    
+    window.checkLowStock = async function() {
+        const container = document.getElementById("low-stock-alerts-container");
+        const list = document.getElementById("low-stock-list");
+        if (!container || !list) return;
+        
+        try {
+            const res = await fetch("http://localhost:8000/alerts/low-stock");
+            const alerts = await res.json();
+            
+            // Eğer daha önce sipariş verdiğimiz ürünler varsa listeden gizleyelim
+            const activeAlerts = alerts.filter(a => !orderedProductsThisSession.has(a.product_id));
+            
+            if (activeAlerts.length === 0) {
+                container.style.display = "none";
+                return;
+            }
+            
+            container.style.display = "block";
+            list.innerHTML = "";
+            
+            activeAlerts.forEach(alert => {
+                const item = document.createElement("div");
+                item.style.backgroundColor = "#fff";
+                item.style.border = "1px solid #ffcc80";
+                item.style.padding = "10px 15px";
+                item.style.borderRadius = "8px";
+                item.style.display = "flex";
+                item.style.justifyContent = "space-between";
+                item.style.alignItems = "center";
+                
+                item.innerHTML = `
+                    <div>
+                        <strong style="font-size: 16px;">${alert.product_name}</strong> stoğu kritik seviyede! 
+                        <span style="color: #d32f2f; font-weight: bold;">(Mevcut: ${alert.current_quantity} Kutu / Sınır: ${alert.critical_threshold})</span>
+                    </div>
+                    <button onclick="placeOrder(${alert.product_id}, this)" style="background-color: #1976d2; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 5px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        Toptancıya Sipariş Geç
+                    </button>
+                `;
+                list.appendChild(item);
+            });
+            
+        } catch (e) {
+            console.error("Kritik stok verisi çekilemedi:", e);
+        }
+    };
+    
+    window.placeOrder = async function(productId, btnElement) {
+        // Butonu anında devre dışı bırakıp "Gönderiliyor" yazalım
+        btnElement.disabled = true;
+        btnElement.innerHTML = "Gönderiliyor...";
+        btnElement.style.backgroundColor = "#9e9e9e";
+        
+        try {
+            const res = await fetch(`http://localhost:8000/order/${productId}`, { method: "POST" });
+            const data = await res.json();
+            
+            if (data.status === "success") {
+                // Başarılı efekti
+                btnElement.innerHTML = "✅ İletildi";
+                btnElement.style.backgroundColor = "#388e3c";
+                
+                // Ürünü artık sipariş edildi listesine ekle ki uyarı kaybolsun
+                setTimeout(() => {
+                    orderedProductsThisSession.add(productId);
+                    checkLowStock(); // UI'ı yenile
+                }, 2000); // 2 saniye sonra satırı gizle
+                
+                if (data.simulated) {
+                    // console'a da bilgi verelim
+                    console.log(`[BİLGİ] E-posta ayarları girilmediği için sipariş simüle edildi.`);
+                }
+            } else {
+                alert("Hata: " + data.message);
+                btnElement.innerHTML = "Tekrar Dene";
+                btnElement.disabled = false;
+                btnElement.style.backgroundColor = "#d32f2f";
+            }
+        } catch (e) {
+            console.error("Sipariş geçilemedi:", e);
+            btnElement.innerHTML = "Hata Oluştu";
+            btnElement.style.backgroundColor = "#d32f2f";
+        }
     };
 });

@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import csv
-import io
 from datetime import datetime, timedelta
+import smtplib
+from email.mime.text import MIMEText
 
 # Import local SQLite models and database
 from .database import engine, Base, get_db
@@ -313,7 +314,68 @@ def waste_batch(batch_id: int, db: Session = Depends(get_db)):
         stock.warehouse_quantity -= batch.quantity
         new_movement = models.Movement(product_id=batch.product_id, movement_type="WASTE", box_count=batch.quantity)
         db.add(new_movement)
-        
     batch.quantity = 0
     db.commit()
     return {"status": "success"}
+
+# ==========================================
+# B2B E-POSTA / SİPARİŞ ENDPOINT'LERİ
+# ==========================================
+
+# TODO: Staj sunumu için buraya kendi bilgilerinizi giriniz.
+# Gmail kullanıyorsanız, Google Hesabı ayarlarından "Uygulama Şifreleri (App Passwords)" almalısınız.
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "SİZİN_MAİL_ADRESİNİZ@gmail.com"
+SENDER_PASSWORD = "GOOGLE_UYGULAMA_ŞİFRENİZ_BURAYA"
+WHOLESALER_EMAIL = "toptanci_sirket@example.com" # Mailin kime gideceğini buraya yazın
+
+@app.get("/alerts/low-stock")
+def get_low_stock_alerts(db: Session = Depends(get_db)):
+    products = db.query(models.Product).all()
+    alerts = []
+    
+    for p in products:
+        stock = db.query(models.Stock).filter(models.Stock.product_id == p.id).first()
+        qty = stock.warehouse_quantity if stock else 0
+        if qty <= p.critical_threshold:
+            alerts.append({
+                "product_id": p.id,
+                "product_name": p.name.capitalize(),
+                "current_quantity": qty,
+                "critical_threshold": p.critical_threshold
+            })
+            
+    return alerts
+
+@app.post("/order/{product_id}")
+def place_order(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+        
+    stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
+    qty = stock.warehouse_quantity if stock else 0
+    
+    # Gerçek E-posta Gönderimi
+    try:
+        if SENDER_EMAIL != "SİZİN_MAİL_ADRESİNİZ@gmail.com" and SENDER_PASSWORD != "GOOGLE_UYGULAMA_ŞİFRENİZ_BURAYA":
+            msg = MIMEText(f"Sayın Tedarikçi,\n\nDepomuzda {product.name.capitalize()} ürünü stokları kritik seviyeye (Mevcut: {qty}) düşmüştür. Lütfen en kısa sürede 50 koli gönderim sağlayınız.\n\nİyi çalışmalar,\nAkıllı Depo Sistemi")
+            msg["Subject"] = f"ACİL SİPARİŞ: {product.name.capitalize()} (Otomatik Sistem Mesajı)"
+            msg["From"] = SENDER_EMAIL
+            msg["To"] = WHOLESALER_EMAIL
+            
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(SENDER_EMAIL, SENDER_PASSWORD)
+                server.send_message(msg)
+                print(f"[MAIL BASARILI] {product.name} siparişi iletildi.")
+            return {"status": "success", "simulated": False}
+        else:
+            print(f"[MAIL SIMULASYONU] E-posta ayarları yapılmadığı için simüle edildi: {product.name} Siparişi")
+            return {"status": "success", "simulated": True, "message": "Email ayarları (SENDER_EMAIL) yapılmadığı için başarıyla simüle edildi."}
+            
+    except Exception as e:
+        print(f"[MAIL HATASI] E-posta gönderilemedi: {e}")
+        # Hata durumunda frontend'i uyarmak için hata dönüyoruz
+        return {"status": "error", "message": str(e)}
