@@ -1,7 +1,6 @@
 import os
 import random
 import shutil
-import yaml
 
 from ultralytics import YOLO
 
@@ -86,29 +85,13 @@ def stage_dataset():
 
 
 # ============================================================
-#  2. Write the YAML config ultralytics expects
+#  2. Train
 # ============================================================
-def write_yaml():
-    yaml_path = os.path.join(STAGED_DIR, "data.yaml")
-    config = {
-        "path": STAGED_DIR,
-        "train": "train",
-        "val": "val",
-        "names": {cls_idx: folder for folder, cls_idx, _ in CLASS_ORDER},
-    }
-    with open(yaml_path, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
-    return yaml_path
-
-
-# ============================================================
-#  3. Train
-# ============================================================
-def train(yaml_path):
+def train(dataset_dir):
     model = YOLO("yolov8n-cls.pt")
 
     results = model.train(
-        data=yaml_path,
+        data=dataset_dir,
         epochs=EPOCHS,
         imgsz=IMG_SIZE,
         batch=BATCH,
@@ -133,8 +116,8 @@ def train(yaml_path):
 # ============================================================
 #  4. Validate and return accuracy
 # ============================================================
-def validate(model, yaml_path):
-    metrics = model.val(data=yaml_path)
+def validate(model, dataset_dir):
+    metrics = model.val(data=dataset_dir)
     return metrics
 
 
@@ -172,20 +155,17 @@ def print_summary(val_metrics):
 #  Main
 # ============================================================
 def main():
-    print("Step 1/5: Staging dataset ...")
+    print("Step 1/4: Staging dataset ...")
     stage_dataset()
 
-    print("\nStep 2/5: Writing data.yaml ...")
-    yaml_path = write_yaml()
-
-    print(f"\nStep 3/5: Training YOLOv8-cls ({EPOCHS} epochs, img={IMG_SIZE}, batch={BATCH}) ...")
+    print(f"\nStep 2/4: Training YOLOv8-cls ({EPOCHS} epochs, img={IMG_SIZE}, batch={BATCH}) ...")
     print("  (This will take ~25-40 minutes on CPU. Be patient.)\n")
-    model, results = train(yaml_path)
+    model, results = train(STAGED_DIR)
 
-    print("\nStep 4/5: Running final validation ...")
-    val_metrics = validate(model, yaml_path)
+    print("\nStep 3/4: Running final validation ...")
+    val_metrics = validate(model, STAGED_DIR)
 
-    print("\nStep 5/5: Exporting best model ...")
+    print("\nStep 4/4: Exporting best model ...")
     export_model()
 
     print_summary(val_metrics)
