@@ -1,4 +1,10 @@
 ECOMMERCE_PRODUCT_IMAGES/
 backend/venv/
+cv/venv/
+venv/
 __pycache__/
 stock.db
+*.mp4
+*.pt
+*.onnx
+.DS_Store

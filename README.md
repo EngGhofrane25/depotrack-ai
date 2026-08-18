@@ -1,51 +1,28 @@
-# Depo Stok Takip Sistemi
+# 📦 Depo Stok Takip Sistemi (Yapay Zeka Destekli)
 
-Kamera + görüntü işleme ile koli giriş/çıkışını algılayıp depo ve raf stoğunu
-otomatik güncelleyen, kritik stokta toptancıya mesaj taslağı hazırlayan sistem.
+Bu proje, bir depo bandından (conveyor) veya kapısından geçen ürünleri **Kamera ve Yapay Zeka (YOLO)** kullanarak otomatik algılayan, sınıflandıran ve stokları güncelleyen bir otomasyon sistemidir.
 
-## Klasör Yapısı
+## ✨ Özellikler
+- **Gerçek Zamanlı Nesne Tespiti (YOLOv8):** Ekrana giren kolileri anında tespit eder.
+- **Sarsılmaz Takip (Robust Centroid Tracking):** Kameradaki anlık bulanıklıklara veya ID düşmelerine karşı kendi geliştirdiğimiz mesafe-bazlı özel takip algoritmasıyla koli çizgiden geçerken takip edilir. İçeri girenlere (+1), depodan çıkanlara (-1) yazılır.
+- **Sınıflandırma:** Ürünleri kategorilerine ayırır (Elektronik, Gıda, Temizlik, Tekstil, Kırtasiye).
+- **Canlı Web Paneli:** Kamerayı (MJPEG stream) ve güncel stok durumunu anlık olarak tarayıcı üzerinden izleyebilirsiniz.
+- **REST API:** FastAPI ile yazılmış arka uç sistemi ve "Mükerrer Kayıt (Çifte Sayım) Koruması" sayesinde çok kararlı çalışır.
 
-```
-depo-stok-projesi/
-├── cv/                     # Kişi A — kamera, YOLO, tracking, sınıflandırma
-│   ├── camera.py           # Kameradan canlı görüntü alma
-│   ├── detector.py         # YOLO ile koli tespiti
-│   ├── config.py           # Ortak ayarlar (kamera kaynağı, model yolu vb.)
-│   └── requirements.txt
-├── backend/                # Kişi B — FastAPI, veritabanı, API'ler
-│   ├── main.py
-│   ├── models.py
-│   ├── database.py
-│   └── requirements.txt
-├── data/
-│   └── kutu_gorselleri/    # Gün 3+ toplanacak koli fotoğrafları (ürün başına klasör)
-└── notebooks/               # Deneme/test için (model eğitimi vb.)
-```
+## 🚀 Teknolojiler
+- **Görüntü İşleme:** OpenCV, Ultralytics (YOLOv8)
+- **Arka Uç (Backend):** Python, FastAPI, Uvicorn
+- **Ön Uç (Frontend):** HTML, CSS, JavaScript (Fetch API)
 
-## Kurulum (Kişi A — CV tarafı)
+## 🛠️ Nasıl Çalıştırılır?
 
+1. **Backend'i Başlatın:**
 ```bash
-cd cv
-python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
-
-## Kurulum (Kişi B — Backend tarafı)
-
+2. **Kamera Sistemini (Yapay Zekayı) Başlatın:**
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload
+python cv/camera_feed.py
 ```
-
-## Gün 1-2 Durumu
-
-- [x] Repo ve klasör yapısı
-- [x] Kamera görüntü alma iskeleti (`cv/camera.py`)
-- [x] YOLO tespit iskeleti (`cv/detector.py`)
-- [x] Backend API iskeleti (`backend/main.py`)
-- [ ] Kamera kaynağının gerçek RTSP/USB adresiyle test edilmesi
-- [ ] İlk 5 ürün/koli tipinin `config.py` içine girilmesi
+3. **Web Panelini Açın:**
+Tarayıcınızda `frontend/index.html` dosyasını açarak sistemi kullanmaya başlayabilirsiniz.
