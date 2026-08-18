@@ -128,6 +128,74 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success"}
 
+@app.get("/products")
+def get_products(db: Session = Depends(get_db)):
+    products = db.query(models.Product).all()
+    return [{"id": p.id, "name": p.name} for p in products]
+
+@app.post("/products")
+def add_product(payload: ProductPayload, db: Session = Depends(get_db)):
+    name_lower = payload.name.lower()
+    existing = db.query(models.Product).filter(models.Product.name == name_lower).first()
+    if existing:
+        return {"status": "error", "message": "Product already exists"}
+        
+    new_product = models.Product(name=name_lower, items_per_box=1, critical_threshold=5, expiration_days=30)
+    db.add(new_product)
+    db.commit()
+    db.refresh(new_product)
+    
+    new_stock = models.Stock(product_id=new_product.id, warehouse_quantity=0, shelf_quantity=0)
+    db.add(new_stock)
+    db.commit()
+    
+    return {"status": "success", "product_id": new_product.id}
+
+@app.post("/stock/in")
+def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
+    stock = db.query(models.Stock).filter(models.Stock.product_id == payload.product_id).first()
+    product = db.query(models.Product).filter(models.Product.id == payload.product_id).first()
+    if stock and product:
+        stock.warehouse_quantity += payload.quantity
+        new_movement = models.Movement(product_id=payload.product_id, movement_type="IN", box_count=payload.quantity)
+        db.add(new_movement)
+        
+        # FEFO: Batch oluştur
+        exp_date = datetime.now() + timedelta(days=product.expiration_days)
+        new_batch = models.Batch(product_id=payload.product_id, quantity=payload.quantity, expiration_date=exp_date)
+        db.add(new_batch)
+        db.commit()
+    return {"status": "success"}
+
+@app.post("/stock/out")
+def stock_out(payload: ManualStockPayload, db: Session = Depends(get_db)):
+    stock = db.query(models.Stock).filter(models.Stock.product_id == payload.product_id).first()
+    if stock and stock.warehouse_quantity >= payload.quantity:
+        stock.warehouse_quantity -= payload.quantity
+        new_movement = models.Movement(product_id=payload.product_id, movement_type="OUT", box_count=payload.quantity)
+        db.add(new_movement)
+        
+        # FEFO mantığı (Quantity kadar düş)
+        remaining_to_deduct = payload.quantity
+        while remaining_to_deduct > 0:
+            oldest_batch = db.query(models.Batch).filter(
+                models.Batch.product_id == payload.product_id,
+                models.Batch.quantity > 0
+            ).order_by(models.Batch.expiration_date.asc()).first()
+            
+            if not oldest_batch:
+                break
+                
+            if oldest_batch.quantity >= remaining_to_deduct:
+                oldest_batch.quantity -= remaining_to_deduct
+                remaining_to_deduct = 0
+            else:
+                remaining_to_deduct -= oldest_batch.quantity
+                oldest_batch.quantity = 0
+                
+        db.commit()
+    return {"status": "success"}
+
 @app.get("/expirations")
 def get_expirations(db: Session = Depends(get_db)):
     # Sadece içinde ürün olan (quantity > 0) partileri getir
