@@ -1,63 +1,61 @@
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Set
-from datetime import datetime
+from sqlalchemy.orm import Session
 import csv
 import io
+from datetime import datetime
 
-app = FastAPI(title="Depo Stok Backend API")
+# Import local SQLite models and database
+from .database import engine, Base, get_db
+from . import models, schemas
 
-# Arayüzün (Frontend) bu API'ye erişebilmesi için CORS izinleri
+# Tabloları oluştur
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Depo Stok Backend API (SQLite)")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Her yerden gelen isteklere izin ver
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Geçici (In-Memory) Veritabanı
-# Gerçekte bu veriler SQLite'da durmalı, ancak hızlı test için bellekte tutuyoruz.
-fake_db_stock = {
-    "elektronik": 0,
-    "gida": 0,
-    "temizlik": 0,
-    "kirtasiye": 0,
-    "tekstil": 0
-}
-
-# GÜN 10 EKSİK UÇLARIN YÜKLENMESİ: Product ve Movement tabloları
-fake_db_products = [
-    {"id": 1, "name": "Elektronik"},
-    {"id": 2, "name": "Gıda"},
-    {"id": 3, "name": "Tekstil"},
-    {"id": 4, "name": "Kırtasiye"},
-    {"id": 5, "name": "Temizlik"}
+# Varsayılan başlangıç verileri (Seed Data)
+INITIAL_PRODUCTS = [
+    {"id": 1, "name": "elektronik", "items_per_box": 1, "critical_threshold": 5},
+    {"id": 2, "name": "gida", "items_per_box": 1, "critical_threshold": 10},
+    {"id": 3, "name": "tekstil", "items_per_box": 1, "critical_threshold": 5},
+    {"id": 4, "name": "kirtasiye", "items_per_box": 1, "critical_threshold": 5},
+    {"id": 5, "name": "temizlik", "items_per_box": 1, "critical_threshold": 5}
 ]
 
-fake_db_movements = []
-next_movement_id = 1
+@app.on_event("startup")
+def startup_event():
+    # Sunucu açıldığında tabloları kontrol edip boşsa ürünleri ekler
+    db = next(get_db())
+    try:
+        if db.query(models.Product).count() == 0:
+            print("[INFO] Veritabanı boş, varsayılan ürünler ekleniyor...")
+            for p_data in INITIAL_PRODUCTS:
+                new_product = models.Product(**p_data)
+                db.add(new_product)
+                # Stok bilgisini de sıfır olarak oluştur
+                new_stock = models.Stock(product_id=p_data["id"], warehouse_quantity=0, shelf_quantity=0)
+                db.add(new_stock)
+            db.commit()
+    finally:
+        db.close()
 
-def record_movement(product_id: int, direction: str, quantity: int):
-    global next_movement_id
-    fake_db_movements.append({
-        "id": next_movement_id,
-        "product_id": product_id,
-        "direction": direction,
-        "quantity": quantity,
-        "timestamp": datetime.now().isoformat()
-    })
-    next_movement_id += 1
-
-# GÜN 10 DÜZELTME: Mükerrer Kayıt (Çifte Sayım) Koruması için geçmiş olaylar
-processed_events: Set[str] = set()
-
-# İstek Modelleri
+# ==========================================
+# İSTEK MODELLERİ (PYDANTIC)
+# ==========================================
 class EventPayload(BaseModel):
     tracking_id: int
-    product_id: int # 1: Elektronik, 2: Gıda, 3: Tekstil, 4: Kırtasiye, 5: Temizlik
-    direction: str  # "IN" veya "OUT"
+    product_id: int
+    direction: str
 
 class ProductPayload(BaseModel):
     name: str
@@ -66,109 +64,137 @@ class ManualStockPayload(BaseModel):
     product_id: int
     quantity: int
 
-PRODUCT_MAP = {
-    1: "elektronik",
-    2: "gida",
-    3: "tekstil",
-    4: "kirtasiye",
-    5: "temizlik"
-}
+# ==========================================
+# API UÇLARI
+# ==========================================
 
 @app.get("/")
 def read_root():
-    return {"message": "Depo Stok API Çalışıyor!"}
+    return {"message": "Depo Stok API'si SQLite Veritabanı ile Çalışıyor"}
 
 @app.get("/stock")
-def get_stock():
-    """
-    Web arayüzü (Frontend) stokları okumak için bu adrese istek atar.
-    """
-    return fake_db_stock
+def get_stock(db: Session = Depends(get_db)):
+    stocks = db.query(models.Stock).all()
+    # Frontend'in beklediği format: {"elektronik": 10, "gida": 5}
+    result = {}
+    for s in stocks:
+        product = db.query(models.Product).filter(models.Product.id == s.product_id).first()
+        if product:
+            result[product.name] = s.warehouse_quantity
+    return result
 
 @app.post("/events")
-def add_event(event: EventPayload):
-    """
-    Kamera Sistemi (camera_feed.py) kutu algıladığında bu adrese istek atar.
-    """
-    product_key = PRODUCT_MAP.get(event.product_id, "bilinmeyen")
+def add_event(event: EventPayload, db: Session = Depends(get_db)):
+    # Mükerrer kayıt kontrolü: Aynı tracking_id ve direction veritabanında var mı?
+    existing_event = db.query(models.Event).filter(
+        models.Event.tracking_id == event.tracking_id,
+        models.Event.direction == event.direction
+    ).first()
     
-    # Çifte sayım koruması: Benzersiz bir işlem kodu oluştur (Örn: "5_IN")
-    event_signature = f"{event.tracking_id}_{event.direction}"
+    if existing_event:
+        return {"status": "ignored", "message": "Duplicate event"}
+        
+    # Olayı veritabanına kaydet
+    new_event = models.Event(
+        tracking_id=event.tracking_id,
+        product_id=event.product_id,
+        direction=event.direction
+    )
+    db.add(new_event)
     
-    if event_signature in processed_events:
-        return {"status": "ignored", "message": "Mükerrer kayıt engellendi.", "current_stock": fake_db_stock}
+    # Stoğu güncelle ve hareket kaydı oluştur
+    stock = db.query(models.Stock).filter(models.Stock.product_id == event.product_id).first()
     
-    # İşlemi geçmiş defterine kaydet
-    processed_events.add(event_signature)
-    
-    if product_key in fake_db_stock:
+    if stock:
         if event.direction == "IN":
-            fake_db_stock[product_key] += 1
-            record_movement(event.product_id, "IN", 1)
+            stock.warehouse_quantity += 1
+            new_movement = models.Movement(product_id=event.product_id, movement_type="IN", box_count=1)
+            db.add(new_movement)
         elif event.direction == "OUT":
-            # Eksiye düşmesini engelle
-            if fake_db_stock[product_key] > 0:
-                fake_db_stock[product_key] -= 1
-                record_movement(event.product_id, "OUT", 1)
+            if stock.warehouse_quantity > 0:
+                stock.warehouse_quantity -= 1
+                new_movement = models.Movement(product_id=event.product_id, movement_type="OUT", box_count=1)
+                db.add(new_movement)
                 
-    return {"status": "success", "current_stock": fake_db_stock}
+    db.commit()
+    return {"status": "success"}
 
-# ==========================================
-# EKSİK UÇLAR (GÜN 10 İLAVESİ)
-# ==========================================
 @app.get("/products")
-def get_products():
-    return fake_db_products
+def get_products(db: Session = Depends(get_db)):
+    products = db.query(models.Product).all()
+    return [{"id": p.id, "name": p.name} for p in products]
 
 @app.post("/products")
-def add_product(payload: ProductPayload):
-    new_id = len(fake_db_products) + 1
-    fake_db_products.append({"id": new_id, "name": payload.name})
-    
-    product_key = payload.name.lower()
-    PRODUCT_MAP[new_id] = product_key
-    if product_key not in fake_db_stock:
-        fake_db_stock[product_key] = 0
+def add_product(payload: ProductPayload, db: Session = Depends(get_db)):
+    name_lower = payload.name.lower()
+    existing = db.query(models.Product).filter(models.Product.name == name_lower).first()
+    if existing:
+        return {"status": "error", "message": "Product already exists"}
         
-    return {"status": "success", "product_id": new_id}
+    new_product = models.Product(name=name_lower, items_per_box=1, critical_threshold=5)
+    db.add(new_product)
+    db.commit()
+    db.refresh(new_product)
+    
+    new_stock = models.Stock(product_id=new_product.id, warehouse_quantity=0, shelf_quantity=0)
+    db.add(new_stock)
+    db.commit()
+    
+    return {"status": "success", "product_id": new_product.id}
 
 @app.get("/movements")
-def get_movements():
-    return fake_db_movements
+def get_movements(db: Session = Depends(get_db)):
+    movements = db.query(models.Movement).order_by(models.Movement.timestamp.desc()).all()
+    return [{
+        "id": m.id,
+        "product_id": m.product_id,
+        "direction": m.movement_type,
+        "quantity": m.box_count,
+        "timestamp": m.timestamp.isoformat() if m.timestamp else None
+    } for m in movements]
 
 @app.post("/stock/in")
-def stock_in(payload: ManualStockPayload):
-    product_key = PRODUCT_MAP.get(payload.product_id, "bilinmeyen")
-    if product_key in fake_db_stock:
-        fake_db_stock[product_key] += payload.quantity
-        record_movement(payload.product_id, "IN", payload.quantity)
-    return {"status": "success", "current_stock": fake_db_stock}
+def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
+    stock = db.query(models.Stock).filter(models.Stock.product_id == payload.product_id).first()
+    if stock:
+        stock.warehouse_quantity += payload.quantity
+        new_movement = models.Movement(product_id=payload.product_id, movement_type="IN", box_count=payload.quantity)
+        db.add(new_movement)
+        db.commit()
+    return {"status": "success"}
 
 @app.post("/stock/out")
-def stock_out(payload: ManualStockPayload):
-    product_key = PRODUCT_MAP.get(payload.product_id, "bilinmeyen")
-    if product_key in fake_db_stock:
-        if fake_db_stock[product_key] >= payload.quantity:
-            fake_db_stock[product_key] -= payload.quantity
-            record_movement(payload.product_id, "OUT", payload.quantity)
-    return {"status": "success", "current_stock": fake_db_stock}
+def stock_out(payload: ManualStockPayload, db: Session = Depends(get_db)):
+    stock = db.query(models.Stock).filter(models.Stock.product_id == payload.product_id).first()
+    if stock and stock.warehouse_quantity >= payload.quantity:
+        stock.warehouse_quantity -= payload.quantity
+        new_movement = models.Movement(product_id=payload.product_id, movement_type="OUT", box_count=payload.quantity)
+        db.add(new_movement)
+        db.commit()
+    return {"status": "success"}
 
 @app.get("/report")
-def download_report():
+def download_report(db: Session = Depends(get_db)):
+    movements = db.query(models.Movement).order_by(models.Movement.id.asc()).all()
+    
     output = io.StringIO()
     writer = csv.writer(output)
-    
-    # CSV Başlık (Header)
     writer.writerow(["ID", "Urun_ID", "Urun_Adi", "Yon", "Miktar", "Zaman"])
     
-    # Veriler
-    for m in fake_db_movements:
-        product_name = PRODUCT_MAP.get(m["product_id"], "Bilinmeyen")
-        writer.writerow([m["id"], m["product_id"], product_name, m["direction"], m["quantity"], m["timestamp"]])
+    for m in movements:
+        product = db.query(models.Product).filter(models.Product.id == m.product_id).first()
+        product_name = product.name if product else "Bilinmeyen"
+        writer.writerow([
+            m.id, 
+            m.product_id, 
+            product_name, 
+            m.movement_type, 
+            m.box_count, 
+            m.timestamp.isoformat() if m.timestamp else ""
+        ])
         
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="stok_hareket_raporu.csv"'}
     )
-
