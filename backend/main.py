@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Set
 from datetime import datetime
+import csv
+import io
 
 app = FastAPI(title="Depo Stok Backend API")
 
@@ -150,4 +152,23 @@ def stock_out(payload: ManualStockPayload):
             fake_db_stock[product_key] -= payload.quantity
             record_movement(payload.product_id, "OUT", payload.quantity)
     return {"status": "success", "current_stock": fake_db_stock}
+
+@app.get("/report")
+def download_report():
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # CSV Başlık (Header)
+    writer.writerow(["ID", "Urun_ID", "Urun_Adi", "Yon", "Miktar", "Zaman"])
+    
+    # Veriler
+    for m in fake_db_movements:
+        product_name = PRODUCT_MAP.get(m["product_id"], "Bilinmeyen")
+        writer.writerow([m["id"], m["product_id"], product_name, m["direction"], m["quantity"], m["timestamp"]])
+        
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="stok_hareket_raporu.csv"'}
+    )
 

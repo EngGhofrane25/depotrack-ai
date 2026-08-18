@@ -83,7 +83,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const downloadBtn = document.getElementById("download-report-btn");
     if (downloadBtn) {
         downloadBtn.addEventListener("click", () => {
-            alert("Rapor hazırlanıyor... ⏳\n\n(Not: Rapor indirme altyapısı Kişi B tarafından Gün 12'de tamamlandığında bu buton gerçek bir Excel/PDF indirecektir.)");
+            // Arka uçtaki (Backend) rapor üretici endpoint'e yönlendir, tarayıcı dosyayı indirir
+            window.open("http://localhost:8000/report", "_blank");
         });
     }
 });
