@@ -13,9 +13,9 @@ FLAT_DATASET = os.path.join(ROOT, "dataset")
 STAGED_DIR = os.path.join(ROOT, "dataset_yolo")
 MODEL_OUT = os.path.join(ROOT, "backend", "models", "box_classifier.pt")
 
-#  Alphabetical folder name -> (forced class index, product_id)
-#  We prefix class folders with "00_", "01_" ... so ultralytics
-#  picks them up in exactly this index order.
+#  (folder_name, class_index, product_id)
+#  ultralytics uses alphabetical / prefix ordering to set class indices,
+#  so we prefix folders with "00_", "01_" etc. to force the exact order.
 CLASS_ORDER = [
     ("elektronik",  0, 1),
     ("gida",        1, 2),
@@ -29,6 +29,7 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif"}
 EPOCHS = 15
 IMG_SIZE = 224
 BATCH = 16
+LR0 = 0.001          # initial learning rate (lower default helps small datasets)
 
 
 # ============================================================
@@ -111,15 +112,34 @@ def train(yaml_path):
         epochs=EPOCHS,
         imgsz=IMG_SIZE,
         batch=BATCH,
+        lr0=LR0,
         name="box_classifier",
         exist_ok=True,
         verbose=True,
+        # --- data augmentation (YOLO defaults, made explicit) ---
+        hsv_h=0.015,       # HSV-Hue augmentation
+        hsv_s=0.7,         # HSV-Saturation augmentation
+        hsv_v=0.4,         # HSV-Value augmentation
+        degrees=10.0,      # rotation +/- degrees
+        translate=0.1,     # translation
+        scale=0.5,         # scale augmentation
+        fliplr=0.5,        # horizontal flip probability
+        mosaic=1.0,        # mosaic augmentation (classification)
+        erasing=0.2,       # random erasing during training
     )
-    return results
+    return model, results
 
 
 # ============================================================
-#  4. Export best weights to the final path
+#  4. Validate and return accuracy
+# ============================================================
+def validate(model, yaml_path):
+    metrics = model.val(data=yaml_path)
+    return metrics
+
+
+# ============================================================
+#  5. Export best weights to the final path
 # ============================================================
 def export_model():
     best = os.path.join(ROOT, "runs", "classify", "train", "weights", "best.pt")
@@ -129,12 +149,18 @@ def export_model():
 
 
 # ============================================================
-#  5. Print summary
+#  6. Print summary
 # ============================================================
-def print_summary():
+def print_summary(val_metrics):
+    acc = val_metrics.top1 if val_metrics else None
     print("\n" + "=" * 55)
-    print("  Class-Index -> Product-ID Mapping")
+    print("  TRAINING COMPLETE")
     print("=" * 55)
+    if acc is not None:
+        print(f"  Final Validation Accuracy (top-1): {acc * 100:.2f}%")
+    print()
+    print("  Class-Index -> Product-ID Mapping")
+    print("-" * 55)
     print(f"  {'Class Index':<14} {'Folder':<14} {'Product ID':<12}")
     print("-" * 55)
     for folder, cls_idx, pid in CLASS_ORDER:
@@ -146,19 +172,23 @@ def print_summary():
 #  Main
 # ============================================================
 def main():
-    print("Step 1/4: Staging dataset ...")
+    print("Step 1/5: Staging dataset ...")
     stage_dataset()
 
-    print("\nStep 2/4: Writing data.yaml ...")
+    print("\nStep 2/5: Writing data.yaml ...")
     yaml_path = write_yaml()
 
-    print("\nStep 3/4: Training YOLOv8-cls (this will take a while on CPU) ...\n")
-    train(yaml_path)
+    print(f"\nStep 3/5: Training YOLOv8-cls ({EPOCHS} epochs, img={IMG_SIZE}, batch={BATCH}) ...")
+    print("  (This will take ~25-40 minutes on CPU. Be patient.)\n")
+    model, results = train(yaml_path)
 
-    print("\nStep 4/4: Exporting best model ...")
+    print("\nStep 4/5: Running final validation ...")
+    val_metrics = validate(model, yaml_path)
+
+    print("\nStep 5/5: Exporting best model ...")
     export_model()
 
-    print_summary()
+    print_summary(val_metrics)
     print("Done.")
 
 
