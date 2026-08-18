@@ -1,7 +1,43 @@
 import cv2
 import numpy as np
 from ultralytics import YOLO
+import requests
 import config
+from flask import Flask, Response
+import threading
+import time
+
+# ==========================================
+# GÜN 11: FLASK SUNUCUSU (CANLI YAYIN İÇİN)
+# ==========================================
+app = Flask(__name__)
+output_frame = None
+lock = threading.Lock()
+
+def generate():
+    global output_frame, lock
+    while True:
+        if output_frame is None:
+            time.sleep(0.1)
+            continue
+            
+        with lock:
+            # Kareyi JPEG formatına çevir
+            (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
+            
+        if not flag:
+            continue
+            
+        # Tarayıcıya gönder (MJPEG formatı)
+        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n')
+        time.sleep(0.03) # ~30 FPS
+
+@app.route("/video_feed")
+def video_feed():
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+# Flask sunucusunu arka planda başlat (Port 5000)
+threading.Thread(target=app.run, kwargs={"host": "0.0.0.0", "port": 5000, "debug": False, "use_reloader": False}, daemon=True).start()
 
 # ==========================================
 # GÜN 6: KUTU TİPİ TANIMA (MOCK Sınıflandırma)
@@ -110,30 +146,24 @@ def main():
 
                 # ==========================================
                 # GİRİŞ / ÇIKIŞ (IN/OUT) MANTIĞI
-                # ==========================================
-                current_state = 0 if center_y < LINE_Y else 1
-
+                # KOLAY TEST MODU: Çizgi kuralını iptal ettik. 
+                # Ekrana yeni bir obje girdiği an anında "GİRDİ" sayar.
                 if track_id not in object_states:
-                    object_states[track_id] = current_state
-                else:
-                    previous_state = object_states[track_id]
+                    object_states[track_id] = True # Bu nesneyi saydığımızı kaydet
                     
-                    if previous_state == 0 and current_state == 1:
-                        # GÜN 6: Artık hangi ürünün girdiğini de terminale yazıyoruz!
-                        print(f"✅ [BİLGİ] {product_name} (ID: {track_id}) DEPOYA GİRDİ!")
-                        object_states[track_id] = current_state 
-                        
-                        # TODO: Backend İstek Yeri
-                        # payload = {"tracking_id": track_id, "product_id": product_id, "direction": "IN"}
-                        # requests.post(f"{config.BACKEND_API_URL}/events", json=payload)
-                        
-                    elif previous_state == 1 and current_state == 0:
-                        print(f"❌ [BİLGİ] {product_name} (ID: {track_id}) DEPODAN ÇIKTI!")
-                        object_states[track_id] = current_state 
-                        
-                        # TODO: Backend İstek Yeri
-                        # payload = {"tracking_id": track_id, "product_id": product_id, "direction": "OUT"}
-                        # requests.post(f"{config.BACKEND_API_URL}/events", json=payload)
+                    print(f"✅ [KOLAY TEST] {product_name} (ID: {track_id}) GÖRÜLDÜ VE DEPOYA EKLENDİ!")
+                    
+                    # GÜN 10: Backend Bağlantısı
+                    try:
+                        payload = {"tracking_id": track_id, "product_id": product_id, "direction": "IN"}
+                        requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
+                    except Exception as e:
+                        print(f"[UYARI] Sunucuya bağlanılamadı: {e}")
+
+        # GÜN 11: Kareyi Canlı Yayın İçin Kaydet
+        global output_frame, lock
+        with lock:
+            output_frame = frame.copy()
 
         cv2.imshow("Depo Stok Takip - Tracking & Classification", frame)
         out.write(frame) # İşlenmiş kareyi videoya kaydet

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depo Stok Yönetim Paneli</title>
+    <!-- Google Fonts: Roboto -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-title">
+            <h1>Depo Stok Takip Sistemi</h1>
+            <p>Canlı Kamera ve Envanter Kontrolü</p>
+        </div>
+        <div class="header-status">
+            <span class="status-dot"></span> Sistem Aktif
+        </div>
+    </header>
+
+    <main class="dashboard-container">
+        
+        <!-- Üst Taraftaki Stok Kartları -->
+        <section class="stock-cards-section">
+            <div class="card card-blue" id="card-elektronik">
+                <div class="card-title">Elektronik</div>
+                <div class="card-value" id="stock-elektronik">--</div>
+            </div>
+            
+            <div class="card card-red" id="card-gida">
+                <div class="card-title">Gıda</div>
+                <div class="card-value" id="stock-gida">--</div>
+            </div>
+            
+            <div class="card card-green" id="card-temizlik">
+                <div class="card-title">Temizlik</div>
+                <div class="card-value" id="stock-temizlik">--</div>
+            </div>
+            
+            <div class="card card-yellow" id="card-kirtasiye">
+                <div class="card-title">Kırtasiye</div>
+                <div class="card-value" id="stock-kirtasiye">--</div>
+            </div>
+            
+            <div class="card card-purple" id="card-tekstil">
+                <div class="card-title">Tekstil</div>
+                <div class="card-value" id="stock-tekstil">--</div>
+            </div>
+        </section>
+
+        <!-- Canlı Yayın ve Loglar -->
+        <section class="main-content-section">
+            
+            <div class="camera-container box-shadow">
+                <div class="section-header">
+                    <h2>Canlı Kamera Yayını</h2>
+                    <span class="live-badge">CANLI</span>
+                </div>
+                <div class="video-container" style="width: 100%; border-radius: 8px; overflow: hidden; background-color: #000;">
+                    <img id="camera-stream" src="http://127.0.0.1:5000/video_feed" alt="Kamera Kapalı veya Başlatılmadı" style="width: 100%; height: auto; display: block;">
+                </div>
+            </div>
+
+            <div class="log-container box-shadow">
+                <div class="section-header">
+                    <h2>Son Hareketler</h2>
+                </div>
+                <ul class="log-list" id="log-list">
+                    <!-- JavaScript ile eklenecek -->
+                </ul>
+            </div>
+
+        </section>
+
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

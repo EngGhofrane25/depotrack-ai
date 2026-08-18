@@ -18,9 +18,9 @@ YOLO_MODEL_PATH = "yolov8n.pt"
 # buradaki numaralar onun veritabanındaki ID'ler ile aynı olmalı.
 PRODUCT_TYPES = {
     1: "Elektronik",
-    2: "Gida",
+    2: "Gıda",
     3: "Tekstil",
-    4: "Kirtasiye",
+    4: "Kırtasiye",
     5: "Temizlik"
 }
 
