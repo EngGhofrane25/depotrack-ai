@@ -51,6 +51,44 @@ body {
     color: var(--text-secondary);
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Buton Tasarımı */
+.btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.2rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.btn-primary {
+    background-color: var(--google-blue);
+    color: white;
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+    background-color: #3367d6;
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.btn-icon {
+    display: inline-block;
+}
+
 .header-status {
     display: flex;
     align-items: center;
@@ -223,5 +261,32 @@ body {
 @media (max-width: 900px) {
     .main-content-section {
         grid-template-columns: 1fr;
+    }
+}
+
+/* YENİ: Mobil Uyum (Responsive) Ayarları */
+@media (max-width: 600px) {
+    .app-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 1rem;
+    }
+    
+    .header-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .dashboard-container {
+        padding: 1rem;
+    }
+    
+    .stock-cards-section {
+        grid-template-columns: 1fr;
+    }
+    
+    .card-value {
+        font-size: 2rem;
     }
 }

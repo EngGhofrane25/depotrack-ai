@@ -76,4 +76,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Her 1 saniyede bir sunucudan güncel verileri otomatik olarak çek!
     setInterval(fetchLiveStock, 1000);
+
+    // ==========================================
+    // GÜN 13: RAPOR İNDİR BUTONU TIKLAMA OLAYI
+    // ==========================================
+    const downloadBtn = document.getElementById("download-report-btn");
+    if (downloadBtn) {
+        downloadBtn.addEventListener("click", () => {
+            alert("Rapor hazırlanıyor... ⏳\n\n(Not: Rapor indirme altyapısı Kişi B tarafından Gün 12'de tamamlandığında bu buton gerçek bir Excel/PDF indirecektir.)");
+        });
+    }
 });
