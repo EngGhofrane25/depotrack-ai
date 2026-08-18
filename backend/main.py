@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Set
+from datetime import datetime
 
 app = FastAPI(title="Depo Stok Backend API")
 
@@ -23,11 +25,44 @@ fake_db_stock = {
     "tekstil": 0
 }
 
-# Kamera Sisteminden Gelen İstek Modeli
+# GÜN 10 EKSİK UÇLARIN YÜKLENMESİ: Product ve Movement tabloları
+fake_db_products = [
+    {"id": 1, "name": "Elektronik"},
+    {"id": 2, "name": "Gıda"},
+    {"id": 3, "name": "Tekstil"},
+    {"id": 4, "name": "Kırtasiye"},
+    {"id": 5, "name": "Temizlik"}
+]
+
+fake_db_movements = []
+next_movement_id = 1
+
+def record_movement(product_id: int, direction: str, quantity: int):
+    global next_movement_id
+    fake_db_movements.append({
+        "id": next_movement_id,
+        "product_id": product_id,
+        "direction": direction,
+        "quantity": quantity,
+        "timestamp": datetime.now().isoformat()
+    })
+    next_movement_id += 1
+
+# GÜN 10 DÜZELTME: Mükerrer Kayıt (Çifte Sayım) Koruması için geçmiş olaylar
+processed_events: Set[str] = set()
+
+# İstek Modelleri
 class EventPayload(BaseModel):
     tracking_id: int
     product_id: int # 1: Elektronik, 2: Gıda, 3: Tekstil, 4: Kırtasiye, 5: Temizlik
     direction: str  # "IN" veya "OUT"
+
+class ProductPayload(BaseModel):
+    name: str
+
+class ManualStockPayload(BaseModel):
+    product_id: int
+    quantity: int
 
 PRODUCT_MAP = {
     1: "elektronik",
@@ -55,13 +90,64 @@ def add_event(event: EventPayload):
     """
     product_key = PRODUCT_MAP.get(event.product_id, "bilinmeyen")
     
+    # Çifte sayım koruması: Benzersiz bir işlem kodu oluştur (Örn: "5_IN")
+    event_signature = f"{event.tracking_id}_{event.direction}"
+    
+    if event_signature in processed_events:
+        return {"status": "ignored", "message": "Mükerrer kayıt engellendi.", "current_stock": fake_db_stock}
+    
+    # İşlemi geçmiş defterine kaydet
+    processed_events.add(event_signature)
+    
     if product_key in fake_db_stock:
         if event.direction == "IN":
             fake_db_stock[product_key] += 1
+            record_movement(event.product_id, "IN", 1)
         elif event.direction == "OUT":
             # Eksiye düşmesini engelle
             if fake_db_stock[product_key] > 0:
                 fake_db_stock[product_key] -= 1
+                record_movement(event.product_id, "OUT", 1)
                 
+    return {"status": "success", "current_stock": fake_db_stock}
+
+# ==========================================
+# EKSİK UÇLAR (GÜN 10 İLAVESİ)
+# ==========================================
+@app.get("/products")
+def get_products():
+    return fake_db_products
+
+@app.post("/products")
+def add_product(payload: ProductPayload):
+    new_id = len(fake_db_products) + 1
+    fake_db_products.append({"id": new_id, "name": payload.name})
+    
+    product_key = payload.name.lower()
+    PRODUCT_MAP[new_id] = product_key
+    if product_key not in fake_db_stock:
+        fake_db_stock[product_key] = 0
+        
+    return {"status": "success", "product_id": new_id}
+
+@app.get("/movements")
+def get_movements():
+    return fake_db_movements
+
+@app.post("/stock/in")
+def stock_in(payload: ManualStockPayload):
+    product_key = PRODUCT_MAP.get(payload.product_id, "bilinmeyen")
+    if product_key in fake_db_stock:
+        fake_db_stock[product_key] += payload.quantity
+        record_movement(payload.product_id, "IN", payload.quantity)
+    return {"status": "success", "current_stock": fake_db_stock}
+
+@app.post("/stock/out")
+def stock_out(payload: ManualStockPayload):
+    product_key = PRODUCT_MAP.get(payload.product_id, "bilinmeyen")
+    if product_key in fake_db_stock:
+        if fake_db_stock[product_key] >= payload.quantity:
+            fake_db_stock[product_key] -= payload.quantity
+            record_movement(payload.product_id, "OUT", payload.quantity)
     return {"status": "success", "current_stock": fake_db_stock}
 

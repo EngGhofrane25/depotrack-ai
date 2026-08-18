@@ -88,7 +88,9 @@ def main():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter('output.mp4', fourcc, fps, (w, h))
 
-    object_states = {}
+    # KENDİ TAKİP ALGORİTMAMIZ İÇİN DEĞİŞKENLER
+    my_trackers = [] 
+    next_id = 1
 
     print("[BİLGİ] Görüntü akışı ve kayıt başladı (output.mp4).")
 
@@ -102,17 +104,13 @@ def main():
 
         results = model.track(frame, persist=True, verbose=False)
 
+        current_trackers = []
         for r in results:
             boxes = r.boxes
-            
-            if boxes.id is None:
-                continue
                 
             for i, box in enumerate(boxes):
                 x1, y1, x2, y2 = box.xyxy[0]
                 x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                
-                track_id = int(boxes.id[i])
 
                 center_x = (x1 + x2) // 2
                 center_y = (y1 + y2) // 2
@@ -140,25 +138,56 @@ def main():
                     product_id = 0
                     product_name = "Bilinmeyen"
                 
-                # ID ve Sınıfı Ekrana Yazdır
-                text = f"ID:{track_id} - {product_name}"
+                # ==========================================
+                # SARSILMAZ GİRİŞ/ÇIKIŞ ALGORİTMAMIZ
+                # ==========================================
+                current_state = 0 if center_y < LINE_Y else 1
+                
+                best_match = None
+                best_dist = 150 * 150 # Maksimum 150 piksel mesafe zıplaması
+                
+                for t in my_trackers:
+                    dist = (center_x - t['center'][0])**2 + (center_y - t['center'][1])**2
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_match = t
+                
+                if best_match is not None:
+                    # Mevcut objeyi bulduk
+                    my_id = best_match['id']
+                    previous_state = best_match['state']
+                    
+                    if previous_state == 0 and current_state == 1:
+                        print(f"✅ [GİRDİ] {product_name} (Özel ID: {my_id}) DEPOYA EKLENDİ! (+1)")
+                        try:
+                            payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
+                            requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
+                        except: pass
+                        
+                    elif previous_state == 1 and current_state == 0:
+                        print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
+                        try:
+                            payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
+                            requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
+                        except: pass
+
+                    # Objeyi güncelleyip yeni listeye ekle, eskisinden çıkar
+                    best_match['center'] = (center_x, center_y)
+                    best_match['state'] = current_state
+                    current_trackers.append(best_match)
+                    my_trackers.remove(best_match)
+                else:
+                    # Tamamen yeni bir obje
+                    my_id = next_id
+                    next_id += 1
+                    current_trackers.append({'center': (center_x, center_y), 'state': current_state, 'id': my_id})
+                
+                # Kendi ID'mizi Ekrana Yazdır
+                text = f"ID:{my_id} - {product_name}"
                 cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-                # ==========================================
-                # GİRİŞ / ÇIKIŞ (IN/OUT) MANTIĞI
-                # KOLAY TEST MODU: Çizgi kuralını iptal ettik. 
-                # Ekrana yeni bir obje girdiği an anında "GİRDİ" sayar.
-                if track_id not in object_states:
-                    object_states[track_id] = True # Bu nesneyi saydığımızı kaydet
-                    
-                    print(f"✅ [KOLAY TEST] {product_name} (ID: {track_id}) GÖRÜLDÜ VE DEPOYA EKLENDİ!")
-                    
-                    # GÜN 10: Backend Bağlantısı
-                    try:
-                        payload = {"tracking_id": track_id, "product_id": product_id, "direction": "IN"}
-                        requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
-                    except Exception as e:
-                        print(f"[UYARI] Sunucuya bağlanılamadı: {e}")
+        # Bu karedeki objeleri, bir sonraki karenin "Geçmişi" olarak ayarla
+        my_trackers = current_trackers
 
         # GÜN 11: Kareyi Canlı Yayın İçin Kaydet
         global output_frame, lock
