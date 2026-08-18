@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Response, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -137,6 +138,10 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
                 if oldest_batch:
                     oldest_batch.quantity -= 1
                     
+            # 2 AŞAMALI ONAY: Kritik stok kontrolü (Çıkış yapıldıktan sonra)
+            if stock.warehouse_quantity <= product.critical_threshold:
+                check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
+                    
     db.commit()
     return {"status": "success"}
 
@@ -209,6 +214,11 @@ def stock_out(payload: ManualStockPayload, db: Session = Depends(get_db)):
             else:
                 remaining_to_deduct -= oldest_batch.quantity
                 oldest_batch.quantity = 0
+                
+        # 2 AŞAMALI ONAY: Kritik stok kontrolü (Manuel çıkış yapıldıktan sonra)
+        product = db.query(models.Product).filter(models.Product.id == payload.product_id).first()
+        if product and stock.warehouse_quantity <= product.critical_threshold:
+            check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
                 
         db.commit()
     return {"status": "success"}
@@ -319,16 +329,70 @@ def waste_batch(batch_id: int, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 # ==========================================
-# B2B E-POSTA / SİPARİŞ ENDPOINT'LERİ
+# B2B E-POSTA / SİPARİŞ ENDPOINT'LERİ (2 AŞAMALI ONAY)
 # ==========================================
 
-# TODO: Staj sunumu için buraya kendi bilgilerinizi giriniz.
-# Gmail kullanıyorsanız, Google Hesabı ayarlarından "Uygulama Şifreleri (App Passwords)" almalısınız.
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "SİZİN_MAİL_ADRESİNİZ@gmail.com"
 SENDER_PASSWORD = "GOOGLE_UYGULAMA_ŞİFRENİZ_BURAYA"
+
+WORKER_EMAIL = "depo_gorevlisi_mailiniz@gmail.com" # Görevlinin (Sizin) onay mailini alacağınız adres
 WHOLESALER_EMAIL = "toptanci_sirket@example.com" # Mailin kime gideceğini buraya yazın
+
+# Spam engellemek için hangi ürün için ne zaman onay maili atıldığını takip ediyoruz
+last_approval_email_sent = {} # { product_id: datetime }
+
+def send_email_helper(to_email, subject, content):
+    if SENDER_EMAIL == "SİZİN_MAİL_ADRESİNİZ@gmail.com":
+        print(f"[MAIL SIMULASYONU] Kime: {to_email} | Konu: {subject}")
+        return True
+        
+    try:
+        msg = MIMEText(content, 'html')
+        msg["Subject"] = subject
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = to_email
+        
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"[MAIL HATASI] E-posta gönderilemedi: {e}")
+        return False
+
+def check_and_send_approval_email(product_id, product_name, current_qty, threshold):
+    global last_approval_email_sent
+    now = datetime.now()
+    last_sent = last_approval_email_sent.get(product_id)
+    
+    # Eğer son 24 saat içinde zaten mail atıldıysa tekrar atma (spam engelleme)
+    if last_sent and (now - last_sent).total_seconds() < 86400:
+        return
+        
+    last_approval_email_sent[product_id] = now
+    
+    # Görevliye gidecek Onay Maili İçeriği (İçinde Tıklanabilir Buton Var)
+    approval_link = f"http://127.0.0.1:8000/approve-order/{product_id}"
+    subject = f"ONAY BEKLİYOR: {product_name.capitalize()} Stoğu Azaldı!"
+    content = f"""
+    <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2 style="color: #ef6c00;">Kritik Stok Uyarısı!</h2>
+            <p>Depodaki <strong>{product_name.capitalize()}</strong> stoğu kritik seviyeye ({current_qty} adet) düşmüştür. (Sınır: {threshold})</p>
+            <p>Toptancıdan yeni bir parti (50 Koli) sipariş geçilmesini onaylıyor musunuz?</p>
+            <br>
+            <a href="{approval_link}" style="background-color: #2e7d32; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">SİPARİŞİ ONAYLA VE TOPTANCIYA İLET</a>
+            <br><br>
+            <small>Bu otomatik bir sistem mesajıdır.</small>
+        </body>
+    </html>
+    """
+    
+    send_email_helper(WORKER_EMAIL, subject, content)
+    print(f"[BİLGİ] {product_name} için Görevliye Onay Maili Gönderildi.")
 
 @app.get("/alerts/low-stock")
 def get_low_stock_alerts(db: Session = Depends(get_db)):
@@ -348,34 +412,42 @@ def get_low_stock_alerts(db: Session = Depends(get_db)):
             
     return alerts
 
-@app.post("/order/{product_id}")
-def place_order(product_id: int, db: Session = Depends(get_db)):
+# Eskiden POST idi, şimdi görevli mailden linke tıklayacağı için GET oldu!
+@app.get("/approve-order/{product_id}", response_class=HTMLResponse)
+def approve_order(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        return HTMLResponse(content="<h1>Hata</h1><p>Ürün bulunamadı.</p>", status_code=404)
         
     stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
     qty = stock.warehouse_quantity if stock else 0
     
-    # Gerçek E-posta Gönderimi
-    try:
-        if SENDER_EMAIL != "SİZİN_MAİL_ADRESİNİZ@gmail.com" and SENDER_PASSWORD != "GOOGLE_UYGULAMA_ŞİFRENİZ_BURAYA":
-            msg = MIMEText(f"Sayın Tedarikçi,\n\nDepomuzda {product.name.capitalize()} ürünü stokları kritik seviyeye (Mevcut: {qty}) düşmüştür. Lütfen en kısa sürede 50 koli gönderim sağlayınız.\n\nİyi çalışmalar,\nAkıllı Depo Sistemi")
-            msg["Subject"] = f"ACİL SİPARİŞ: {product.name.capitalize()} (Otomatik Sistem Mesajı)"
-            msg["From"] = SENDER_EMAIL
-            msg["To"] = WHOLESALER_EMAIL
-            
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(SENDER_EMAIL, SENDER_PASSWORD)
-                server.send_message(msg)
-                print(f"[MAIL BASARILI] {product.name} siparişi iletildi.")
-            return {"status": "success", "simulated": False}
-        else:
-            print(f"[MAIL SIMULASYONU] E-posta ayarları yapılmadığı için simüle edildi: {product.name} Siparişi")
-            return {"status": "success", "simulated": True, "message": "Email ayarları (SENDER_EMAIL) yapılmadığı için başarıyla simüle edildi."}
-            
-    except Exception as e:
-        print(f"[MAIL HATASI] E-posta gönderilemedi: {e}")
-        # Hata durumunda frontend'i uyarmak için hata dönüyoruz
-        return {"status": "error", "message": str(e)}
+    # 2. AŞAMA: Toptancıya Giden Gerçek Sipariş Maili
+    subject = f"ACİL SİPARİŞ: {product.name.capitalize()} (Otomatik Sistem Mesajı)"
+    content = f"""
+    <html>
+        <body>
+            <p>Sayın Tedarikçi,</p>
+            <p>Depomuzda <strong>{product.name.capitalize()}</strong> ürünü stokları kritik seviyeye (Mevcut: {qty}) düşmüştür.</p>
+            <p>Lütfen en kısa sürede adresimize <strong>50 koli</strong> gönderim sağlayınız.</p>
+            <br><p>İyi çalışmalar,<br>Akıllı Depo Sistemi</p>
+        </body>
+    </html>
+    """
+    
+    success = send_email_helper(WHOLESALER_EMAIL, subject, content)
+    
+    if success:
+        return f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                <div style="max-width: 500px; margin: 0 auto; background-color: #e8f5e9; padding: 30px; border-radius: 10px; border: 1px solid #4caf50;">
+                    <h1 style="color: #2e7d32;">✅ SİPARİŞ ONAYLANDI!</h1>
+                    <p style="font-size: 18px;"><b>{product.name.capitalize()}</b> için toptancıya ({WHOLESALER_EMAIL}) resmi sipariş e-postası başarıyla iletildi.</p>
+                    <p style="color: #666;">Bu pencereyi kapatabilirsiniz.</p>
+                </div>
+            </body>
+        </html>
+        """
+    else:
+        return "<h1>Hata Oluştu!</h1><p>Toptancıya e-posta iletilemedi. Konsol loglarını kontrol edin.</p>"

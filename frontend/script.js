@@ -325,10 +325,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         <strong style="font-size: 16px;">${alert.product_name}</strong> stoğu kritik seviyede! 
                         <span style="color: #d32f2f; font-weight: bold;">(Mevcut: ${alert.current_quantity} Kutu / Sınır: ${alert.critical_threshold})</span>
                     </div>
-                    <button onclick="placeOrder(${alert.product_id}, this)" style="background-color: #1976d2; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 5px;">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                        Toptancıya Sipariş Geç
-                    </button>
+                    <div style="background-color: #e3f2fd; color: #1976d2; padding: 8px 15px; border-radius: 4px; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 5px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                        Görevliye Onay Maili İletildi
+                    </div>
                 `;
                 list.appendChild(item);
             });
@@ -338,41 +338,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
     
-    window.placeOrder = async function(productId, btnElement) {
-        // Butonu anında devre dışı bırakıp "Gönderiliyor" yazalım
-        btnElement.disabled = true;
-        btnElement.innerHTML = "Gönderiliyor...";
-        btnElement.style.backgroundColor = "#9e9e9e";
-        
-        try {
-            const res = await fetch(`http://localhost:8000/order/${productId}`, { method: "POST" });
-            const data = await res.json();
-            
-            if (data.status === "success") {
-                // Başarılı efekti
-                btnElement.innerHTML = "✅ İletildi";
-                btnElement.style.backgroundColor = "#388e3c";
-                
-                // Ürünü artık sipariş edildi listesine ekle ki uyarı kaybolsun
-                setTimeout(() => {
-                    orderedProductsThisSession.add(productId);
-                    checkLowStock(); // UI'ı yenile
-                }, 2000); // 2 saniye sonra satırı gizle
-                
-                if (data.simulated) {
-                    // console'a da bilgi verelim
-                    console.log(`[BİLGİ] E-posta ayarları girilmediği için sipariş simüle edildi.`);
-                }
-            } else {
-                alert("Hata: " + data.message);
-                btnElement.innerHTML = "Tekrar Dene";
-                btnElement.disabled = false;
-                btnElement.style.backgroundColor = "#d32f2f";
-            }
-        } catch (e) {
-            console.error("Sipariş geçilemedi:", e);
-            btnElement.innerHTML = "Hata Oluştu";
-            btnElement.style.backgroundColor = "#d32f2f";
-        }
-    };
+    // Not: window.placeOrder fonksiyonu silindi çünkü artık sistem 
+    // görevlinin e-postasındaki link üzerinden arka ucu (GET /approve-order) tetikliyor.
 });
