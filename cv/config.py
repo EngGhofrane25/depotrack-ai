@@ -11,7 +11,7 @@ CAMERA_SOURCE = 0
 # 2. YAPAY ZEKA MODELİ AYARLARI
 # Obje tespiti için YOLOv8'in en hızlı ve hafif modeli olan nano ('n') versiyonunu seçiyoruz.
 # İlk çalıştırmada internetten otomatik olarak indirilecektir.
-YOLO_MODEL_PATH = "yolov8n.pt"
+YOLO_MODEL_PATH = "backend/models/box_classifier.pt"
 
 # 3. KUTU/ÜRÜN TİPLERİ (Kişi B'nin veritabanı ile eşleşecek)
 # Şimdilik 5 örnek koli tipi belirledik. Arkadaşınız backend'i kurduğunda
