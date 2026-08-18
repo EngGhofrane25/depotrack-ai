@@ -51,3 +51,14 @@ class EventOut(BaseModel):
     timestamp: datetime
 
     model_config = {"from_attributes": True}
+
+
+class BatchOut(BaseModel):
+    id: int
+    product_id: int
+    product_name: str
+    quantity: int
+    expiration_date: datetime
+    created_at: datetime
+    
+    model_config = {"from_attributes": True}

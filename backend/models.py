@@ -11,6 +11,7 @@ class Product(Base):
     items_per_box = Column(Integer, nullable=False)
     critical_threshold = Column(Integer, nullable=False)
     supplier_info = Column(String, default="")
+    expiration_days = Column(Integer, default=30, nullable=False) # Yeni eklendi: FEFO için ömür
 
 
 class Stock(Base):
@@ -39,3 +40,13 @@ class Event(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     direction = Column(String, nullable=False)  # "IN" or "OUT"
     timestamp = Column(DateTime, server_default=func.now())
+
+
+class Batch(Base):
+    __tablename__ = "batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity = Column(Integer, nullable=False, default=0)
+    expiration_date = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
