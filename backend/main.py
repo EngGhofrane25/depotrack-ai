@@ -172,6 +172,17 @@ def update_batch_expiration(batch_id: int, payload: UpdateBatchPayload, db: Sess
     db.commit()
     return {"status": "success"}
 
+@app.get("/movements")
+def get_movements(db: Session = Depends(get_db)):
+    movements = db.query(models.Movement).order_by(models.Movement.id.desc()).limit(50).all()
+    return [{
+        "id": m.id,
+        "product_id": m.product_id,
+        "direction": m.movement_type,
+        "quantity": m.box_count,
+        "timestamp": m.timestamp.isoformat() if m.timestamp else None
+    } for m in movements]
+
 @app.get("/report")
 def download_report(db: Session = Depends(get_db)):
     movements = db.query(models.Movement).order_by(models.Movement.id.asc()).all()
