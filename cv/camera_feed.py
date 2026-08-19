@@ -101,7 +101,7 @@ def main():
     out = cv2.VideoWriter('output.mp4', fourcc, cam_fps, (w, h))
 
     my_trackers = []
-    next_id = 1
+    next_id = int(time.time()) # Zaman bazlı ID: her başlatmada eşsiz, backend duplicate kontrolüyle uyumlu
     last_results = None
     frame_count = 0
     classify_cache = {}   # tracking_id → product_id (sınıflandırma sonucu önbellek)
