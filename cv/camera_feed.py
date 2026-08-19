@@ -70,6 +70,12 @@ def classify_box(box_img):
     
     return 0
 
+# ==========================================
+# PERFORMANS AYARLARI
+# ==========================================
+DETECT_WIDTH = 640       # YOLO'ya giden genişlik (orijinal kareden küçültülür → daha hızlı)
+DETECT_EVERY_N = 2       # Her N karede bir algılama çalıştır (atlanan karelerde son sonuç kullanılır)
+
 
 def main():
     print("[BİLGİ] YOLO modeli yükleniyor...")
@@ -84,138 +90,173 @@ def main():
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    LINE_Y = h // 2 
+    cam_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    LINE_Y = h // 2
 
-    # Videoyu kaydetmek için VideoWriter
+    # Koordinat ölçeklendirme faktörü (algılama çerçevesi → orijinal çerçeve)
+    scale = DETECT_WIDTH / w
+    detect_h = int(h * scale)
+
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter('output.mp4', fourcc, fps, (w, h))
+    out = cv2.VideoWriter('output.mp4', fourcc, cam_fps, (w, h))
 
-    # Nesne takibi için gerekli değişkenler
-    current_trackers = []
-    import time
-    next_id = int(time.time()) # Her başlatmada eşsiz ID üretmek için zamanı kullanıyoruz
+    my_trackers = []
+    next_id = int(time.time()) # Zaman bazlı ID: her başlatmada eşsiz, backend duplicate kontrolüyle uyumlu
+    last_results = None
+    frame_count = 0
+    classify_cache = {}   # tracking_id → product_id (sınıflandırma sonucu önbellek)
+
+    # FPS ölçümü
+    fps_start = time.time()
+    fps_frame_count = 0
+    current_fps = 0.0
 
     print("[BİLGİ] Görüntü akışı ve kayıt başladı (output.mp4).")
     print(f"[BİLGİ] Backend adresi: {config.BACKEND_API_URL}")
+    print(f"[PERF] Algılama: {DETECT_WIDTH}x{detect_h}px | Her {DETECT_EVERY_N} karede algılama | Sınıflandırma önbellekli")
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
+        frame_count += 1
+        fps_frame_count += 1
+
+        # FPS hesaplama (her saniye güncelle)
+        elapsed = time.time() - fps_start
+        if elapsed >= 1.0:
+            current_fps = fps_frame_count / elapsed
+            fps_frame_count = 0
+            fps_start = time.time()
+            print(f"[FPS] {current_fps:.1f} FPS | Aktif takipçi: {len(my_trackers)} | Frame #{frame_count}")
+
+        # Referans çizgisi
         cv2.line(frame, (0, LINE_Y), (w, LINE_Y), (255, 0, 0), 2)
         cv2.putText(frame, "REFERANS CIZGISI", (10, LINE_Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        results = model.track(frame, persist=True, verbose=False, conf=0.15)
+        # === ALGILAMA (her N karede bir, kucuk cercevede) ===
+        run_detection = (frame_count % DETECT_EVERY_N == 0)
+
+        if run_detection:
+            detect_frame = cv2.resize(frame, (DETECT_WIDTH, detect_h))
+            results = model.track(detect_frame, persist=True, verbose=False, conf=0.15)
+            last_results = results
+        else:
+            results = last_results  # Atlanan karelerde son algilama sonuclarini kullan
 
         current_trackers = []
-        for r in results:
-            boxes = r.boxes
-                
-            for i, box in enumerate(boxes):
-                # GÜN 15 (HATA DÜZELTME): İnsanları (Sizi) veya eli kutu sanmasını engelle!
-                # YOLOv8'de class 0 'insan' demektir. Eğer insan gördüyse hiç hesaba katma, atla.
-                if int(box.cls[0]) == 0:
-                    continue
-                    
-                x1, y1, x2, y2 = box.xyxy[0]
-                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-                center_x = (x1 + x2) // 2
-                center_y = (y1 + y2) // 2
-                
-                cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                
-                # ==========================================
-                # GÜN 6: KIRPMA VE SINIFLANDIRMA (YENİ EKLENDİ)
-                # ==========================================
-                # Hata vermemesi için koordinatları ekran sınırlarında tutuyoruz
-                crop_y1 = max(0, y1)
-                crop_y2 = min(h, y2)
-                crop_x1 = max(0, x1)
-                crop_x2 = min(w, x2)
-                
-                # Kutuyu orijinal çerçeveden kırpıyoruz (Crop)
-                box_img = frame[crop_y1:crop_y2, crop_x1:crop_x2]
-                
-                # Çok küçük veya geçersiz kırpmaları yoksay
-                if box_img.size > 0:
-                    product_id = classify_box(box_img)
+        if results:
+            for r in results:
+                boxes = r.boxes
+
+                for i, box in enumerate(boxes):
+                    if int(box.cls[0]) == 0:
+                        continue
+
+                    x1, y1, x2, y2 = box.xyxy[0]
+
+                    # Koordinatları orijinal çerçeve boyutuna ölçekle
+                    x1 = int(x1 / scale)
+                    y1 = int(y1 / scale)
+                    x2 = int(x2 / scale)
+                    y2 = int(y2 / scale)
+
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+
+                    cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+                    # === GİRİŞ/ÇIKIŞ DURUMU ===
+                    current_state = 0 if center_y < LINE_Y else 1
+
+                    best_match = None
+                    best_dist = 150 * 150
+
+                    for t in my_trackers:
+                        dist = (center_x - t['center'][0])**2 + (center_y - t['center'][1])**2
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_match = t
+
+                    if best_match is not None:
+                        my_id = best_match['id']
+                        previous_state = best_match['state']
+
+                        if previous_state == 0 and current_state == 1:
+                            product_id = classify_cache.get(my_id, 0)
+                            product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
+                            print(f"✅ [GİRDİ] {product_name} (Özel ID: {my_id}) DEPOYA EKLENDİ! (+1)")
+                            try:
+                                payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
+                                resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
+                                print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
+                            except Exception as e:
+                                print(f"[BACKEND HATASI - IN] {e}")
+
+                        elif previous_state == 1 and current_state == 0:
+                            product_id = classify_cache.get(my_id, 0)
+                            product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
+                            print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
+                            try:
+                                payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
+                                resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
+                                print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
+                            except Exception as e:
+                                print(f"[BACKEND HATASI - OUT] {e}")
+
+                        best_match['center'] = (center_x, center_y)
+                        best_match['state'] = current_state
+                        current_trackers.append(best_match)
+                        my_trackers.remove(best_match)
+                    else:
+                        my_id = next_id
+                        next_id += 1
+
+                        # Yeni obje: sadece bir kez sınıflandır ve önbelleğe kaydet
+                        crop_y1 = max(0, y1)
+                        crop_y2 = min(h, y2)
+                        crop_x1 = max(0, x1)
+                        crop_x2 = min(w, x2)
+                        box_img = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+
+                        if box_img.size > 0:
+                            product_id = classify_box(box_img)
+                        else:
+                            product_id = 0
+                        classify_cache[my_id] = product_id
+
+                        current_trackers.append({'center': (center_x, center_y), 'state': current_state, 'id': my_id})
+
+                    # Ekrana yazdır (önbellekten)
+                    product_id = classify_cache.get(my_id, 0)
                     product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
-                else:
-                    product_id = 0
-                    product_name = "Bilinmeyen"
-                
-                # ==========================================
-                # SARSILMAZ GİRİŞ/ÇIKIŞ ALGORİTMAMIZ
-                # ==========================================
-                current_state = 0 if center_y < LINE_Y else 1
-                
-                best_match = None
-                best_dist = 150 * 150 # Maksimum 150 piksel mesafe zıplaması
-                
-                for t in my_trackers:
-                    dist = (center_x - t['center'][0])**2 + (center_y - t['center'][1])**2
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_match = t
-                
-                if best_match is not None:
-                    # Mevcut objeyi bulduk
-                    my_id = best_match['id']
-                    previous_state = best_match['state']
-                    
-                    if previous_state == 0 and current_state == 1:
-                        print(f"✅ [GİRDİ] {product_name} (Özel ID: {my_id}) DEPOYA EKLENDİ! (+1)")
-                        try:
-                            payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
-                            resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
-                            print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
-                        except Exception as e:
-                            print(f"[BACKEND HATASI - IN] {e}")
-                        
-                    elif previous_state == 1 and current_state == 0:
-                        print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
-                        try:
-                            payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
-                            resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
-                            print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
-                        except Exception as e:
-                            print(f"[BACKEND HATASI - OUT] {e}")
+                    text = f"ID:{my_id} - {product_name}"
+                    cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-                    # Objeyi güncelleyip yeni listeye ekle, eskisinden çıkar
-                    best_match['center'] = (center_x, center_y)
-                    best_match['state'] = current_state
-                    current_trackers.append(best_match)
-                    my_trackers.remove(best_match)
-                else:
-                    # Tamamen yeni bir obje
-                    my_id = next_id
-                    next_id += 1
-                    current_trackers.append({'center': (center_x, center_y), 'state': current_state, 'id': my_id})
-                
-                # Kendi ID'mizi Ekrana Yazdır
-                text = f"ID:{my_id} - {product_name}"
-                cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        # Bu karedeki objeleri, bir sonraki karenin "Geçmişi" olarak ayarla
         my_trackers = current_trackers
 
-        # GÜN 11: Kareyi Canlı Yayın İçin Kaydet
+        # FPS ve durum bilgisi ekranda
+        cv2.putText(frame, f"FPS: {current_fps:.1f}", (w - 160, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.putText(frame, f"Algılama: her {DETECT_EVERY_N} kare | {DETECT_WIDTH}px",
+                    (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+        # Canlı yayın karesi
         global output_frame, lock
         with lock:
             output_frame = frame.copy()
 
         cv2.imshow("Depo Stok Takip - Tracking & Classification", frame)
-        out.write(frame) # İşlenmiş kareyi videoya kaydet
+        out.write(frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()
-    out.release() # Video dosyasını kapat
+    out.release()
     cv2.destroyAllWindows()
     print("[BİLGİ] Program sonlandırıldı. Çıktı 'output.mp4' olarak kaydedildi.")
 
