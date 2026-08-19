@@ -93,6 +93,7 @@ def main():
     next_id = 1
 
     print("[BİLGİ] Görüntü akışı ve kayıt başladı (output.mp4).")
+    print(f"[BİLGİ] Backend adresi: {config.BACKEND_API_URL}")
 
     while True:
         ret, frame = cap.read()
@@ -161,15 +162,19 @@ def main():
                         print(f"✅ [GİRDİ] {product_name} (Özel ID: {my_id}) DEPOYA EKLENDİ! (+1)")
                         try:
                             payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
-                            requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
-                        except: pass
+                            resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
+                            print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
+                        except Exception as e:
+                            print(f"[BACKEND HATASI - IN] {e}")
                         
                     elif previous_state == 1 and current_state == 0:
                         print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
                         try:
                             payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
-                            requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
-                        except: pass
+                            resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
+                            print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
+                        except Exception as e:
+                            print(f"[BACKEND HATASI - OUT] {e}")
 
                     # Objeyi güncelleyip yeni listeye ekle, eskisinden çıkar
                     best_match['center'] = (center_x, center_y)
