@@ -22,6 +22,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updateLogs(logs) {
+        console.log("[POLL] updateLogs called with", logs.length, "entries. Most recent:", logs[0]?.timestamp);
         logList.innerHTML = ""; // Listeyi temizle
         
         // En son 5 hareketi göster
@@ -111,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- 4. Chart.js Çizimi ---
     window.updateChart = async function() {
         try {
-            const res = await fetch("http://localhost:8000/analytics");
+            const res = await fetch("http://localhost:8000/analytics", { cache: "no-store" });
             const data = await res.json();
             
             const ctx = document.getElementById('inventoryChart');
@@ -211,9 +212,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Gerçek Sunucudan Veri Çekme Fonksiyonu
     async function fetchLiveStock() {
+        console.log("[POLL] fetchLiveStock called at", new Date().toLocaleTimeString());
         // 1. Stok verisini çek
         try {
-            const response = await fetch("http://localhost:8000/stock");
+            const response = await fetch("http://localhost:8000/stock", { cache: "no-store" });
             const currentStock = await response.json();
             
             // Sadece görsellik için log yazdırma
@@ -234,7 +236,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 2. Hareket geçmişi (Loglar) verisini çek
         try {
-            const logsRes = await fetch("http://localhost:8000/movements");
+            const logsRes = await fetch("http://localhost:8000/movements", { cache: "no-store" });
             const logsData = await logsRes.json();
             updateLogs(logsData);
         } catch (error) {
@@ -243,7 +245,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 3. SKT Uyarılarını ve Tüm Tabloyu Çek
         try {
-            const expRes = await fetch("http://localhost:8000/expirations");
+            const expRes = await fetch("http://localhost:8000/expirations", { cache: "no-store" });
             const expData = await expRes.json();
             updateExpirations(expData);
             if (typeof renderAllBatches === "function") {
@@ -382,7 +384,7 @@ window.promptEditStock = async function(productName) {
     window.checkPalletStatus = async function() {
         if (!badgePalletStatus) return;
         try {
-            const res = await fetch("http://localhost:8000/pallet/status");
+            const res = await fetch("http://localhost:8000/pallet/status", { cache: "no-store" });
             const data = await res.json();
             if (data.status === "active") {
                 badgePalletStatus.innerText = "AKTİF (Tarih: " + new Date(data.expiration_date).toLocaleDateString("tr-TR") + ")";
@@ -476,7 +478,7 @@ window.promptEditStock = async function(productName) {
         if (!container || !list) return;
         
         try {
-            const res = await fetch("http://localhost:8000/alerts/low-stock");
+            const res = await fetch("http://localhost:8000/alerts/low-stock", { cache: "no-store" });
             const alerts = await res.json();
             
             // Eğer daha önce sipariş verdiğimiz ürünler varsa listeden gizleyelim
