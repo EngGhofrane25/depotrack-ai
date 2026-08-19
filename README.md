@@ -3,16 +3,17 @@
 Bu proje, bir depo bandından (conveyor) veya kapısından geçen ürünleri **Kamera ve Yapay Zeka (YOLO)** kullanarak otomatik algılayan, sınıflandıran ve stokları güncelleyen bir otomasyon sistemidir.
 
 ## ✨ Özellikler
-- **Gerçek Zamanlı Nesne Tespiti (YOLOv8):** Ekrana giren kolileri anında tespit eder.
-- **Sarsılmaz Takip (Robust Centroid Tracking):** Kameradaki anlık bulanıklıklara veya ID düşmelerine karşı kendi geliştirdiğimiz mesafe-bazlı özel takip algoritmasıyla koli çizgiden geçerken takip edilir. İçeri girenlere (+1), depodan çıkanlara (-1) yazılır.
-- **Sınıflandırma:** Ürünleri kategorilerine ayırır (Elektronik, Gıda, Temizlik, Tekstil, Kırtasiye).
-- **Canlı Web Paneli:** Kamerayı (MJPEG stream) ve güncel stok durumunu anlık olarak tarayıcı üzerinden izleyebilirsiniz.
-- **REST API:** FastAPI ile yazılmış arka uç sistemi ve "Mükerrer Kayıt (Çifte Sayım) Koruması" sayesinde çok kararlı çalışır.
+- **Çift Yapay Zeka Mimarisi:** YOLOv8n ile nesne tespiti (Tracking) yaparken, Kendi Eğittiğimiz Özel Model (box_classifier.pt) ile nesneleri %72 doğrulukla sınıflandırır (Gıda, Elektronik vs.).
+- **Sarsılmaz Takip (Robust Centroid Tracking):** Kameradaki anlık bulanıklıklara veya ID düşmelerine karşı kendi geliştirdiğimiz özel takip algoritmasıyla koli çizgiden geçerken takip edilir. 
+- **Akıllı SKT (Son Kullanım Tarihi) Uyarıları:** Web panelinde tarihi yaklaşan veya tarihi geçen ürünleri kırmızı alarm ile en tepede gösterir.
+- **FEFO (İlk Giren İlk Çıkar) Algoritması:** Kamera depodan bir ürünün çıktığını gördüğünde stoktan rastgele eksiltmek yerine, veritabanını tarayarak SKT'si en yakın olan o eski kutuyu bulup sistemden düşer.
+- **Gerçek Veritabanı:** SQLite & SQLAlchemy kullanılarak elektrik kesintilerine karşı kalıcı (Persistent) depolama sağlanır. Raporlar CSV formatında indirilebilir.
+- **Canlı Web Paneli:** Kamerayı (MJPEG stream), hareket geçmişini ve güncel stok durumunu anlık olarak tarayıcı üzerinden izleyebilirsiniz.
 
 ## 🚀 Teknolojiler
-- **Görüntü İşleme:** OpenCV, Ultralytics (YOLOv8)
-- **Arka Uç (Backend):** Python, FastAPI, Uvicorn
-- **Ön Uç (Frontend):** HTML, CSS, JavaScript (Fetch API)
+- **Görüntü İşleme:** OpenCV, Ultralytics (YOLOv8 + Custom YOLO-cls)
+- **Arka Uç & Veritabanı:** Python, FastAPI, Uvicorn, SQLite, SQLAlchemy
+- **Ön Uç (Frontend):** HTML, Vanilla CSS, JavaScript (Fetch API)
 
 ## 🛠️ Nasıl Çalıştırılır?
 

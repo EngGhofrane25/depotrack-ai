@@ -1,10 +1,13 @@
 from fastapi import FastAPI, Response, Depends, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import csv
 import io
 from datetime import datetime, timedelta
+import smtplib
+from email.mime.text import MIMEText
 
 # Import local SQLite models and database
 from .database import engine, Base, get_db
@@ -65,6 +68,16 @@ class ManualStockPayload(BaseModel):
 class UpdateBatchPayload(BaseModel):
     expiration_date: datetime
 
+class PalletPayload(BaseModel):
+    expiration_date: datetime
+
+class LoginPayload(BaseModel):
+    username: str
+    password: str
+
+# Global State for Active Pallet Entry Mode
+active_pallet_date = None
+
 # ==========================================
 # API UÇLARI
 # ==========================================
@@ -72,6 +85,41 @@ class UpdateBatchPayload(BaseModel):
 @app.get("/")
 def read_root():
     return {"message": "Depo Stok API'si SQLite Veritabanı ile Çalışıyor"}
+
+@app.post("/login")
+def login(payload: LoginPayload):
+    if payload.username == "admin" and payload.password == "12345":
+        return {"status": "success", "token": "admin-token-123", "role": "admin"}
+    elif payload.username == "gorevli" and payload.password == "12345":
+        return {"status": "success", "token": "worker-token-456", "role": "worker"}
+    raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya şifre")
+
+@app.get("/analytics")
+def get_analytics(db: Session = Depends(get_db)):
+    stocks = db.query(models.Stock).all()
+    labels = []
+    data = []
+    for s in stocks:
+        product = db.query(models.Product).filter(models.Product.id == s.product_id).first()
+        if product:
+            labels.append(product.name.capitalize())
+            data.append(s.warehouse_quantity)
+    return {"labels": labels, "data": data}
+
+@app.get("/export/csv")
+def export_csv(db: Session = Depends(get_db)):
+    movements = db.query(models.Movement).order_by(models.Movement.timestamp.desc()).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Urun", "Islem Yonu", "Kutu Sayisi", "Tarih"])
+    
+    for mov in movements:
+        product = db.query(models.Product).filter(models.Product.id == mov.product_id).first()
+        p_name = product.name.capitalize() if product else "Bilinmiyor"
+        writer.writerow([mov.id, p_name, mov.movement_type, mov.box_count, mov.timestamp.strftime("%Y-%m-%d %H:%M:%S")])
+        
+    output.seek(0)
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=depo_rapor.csv"})
 
 @app.get("/stock")
 def get_stock(db: Session = Depends(get_db)):
@@ -105,8 +153,13 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
             new_movement = models.Movement(product_id=event.product_id, movement_type="IN", box_count=1)
             db.add(new_movement)
             
-            # FEFO: Otomatik SKT Atama (Varsayılan gün kadar sonrası)
-            exp_date = datetime.now() + timedelta(days=product.expiration_days)
+            # FEFO: Otomatik SKT Atama (Aktif palet tarihi varsa onu kullan, yoksa varsayılan)
+            global active_pallet_date
+            if active_pallet_date:
+                exp_date = active_pallet_date
+            else:
+                exp_date = datetime.now() + timedelta(days=product.expiration_days)
+                
             new_batch = models.Batch(product_id=event.product_id, quantity=1, expiration_date=exp_date)
             db.add(new_batch)
             
@@ -124,6 +177,10 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
                 
                 if oldest_batch:
                     oldest_batch.quantity -= 1
+                    
+            # 2 AŞAMALI ONAY: Kritik stok kontrolü (Çıkış yapıldıktan sonra)
+            if stock.warehouse_quantity <= product.critical_threshold:
+                check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
                     
     db.commit()
     return {"status": "success"}
@@ -161,7 +218,12 @@ def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
         db.add(new_movement)
         
         # FEFO: Batch oluştur
-        exp_date = datetime.now() + timedelta(days=product.expiration_days)
+        global active_pallet_date
+        if active_pallet_date:
+            exp_date = active_pallet_date
+        else:
+            exp_date = datetime.now() + timedelta(days=product.expiration_days)
+            
         new_batch = models.Batch(product_id=payload.product_id, quantity=payload.quantity, expiration_date=exp_date)
         db.add(new_batch)
         db.commit()
@@ -192,6 +254,11 @@ def stock_out(payload: ManualStockPayload, db: Session = Depends(get_db)):
             else:
                 remaining_to_deduct -= oldest_batch.quantity
                 oldest_batch.quantity = 0
+                
+        # 2 AŞAMALI ONAY: Kritik stok kontrolü (Manuel çıkış yapıldıktan sonra)
+        product = db.query(models.Product).filter(models.Product.id == payload.product_id).first()
+        if product and stock.warehouse_quantity <= product.critical_threshold:
+            check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
                 
         db.commit()
     return {"status": "success"}
@@ -262,3 +329,182 @@ def download_report(db: Session = Depends(get_db)):
         product_name = product.name if product else "Bilinmeyen"
         writer.writerow([m.id, m.product_id, product_name, m.movement_type, m.box_count, m.timestamp.isoformat() if m.timestamp else ""])
     return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="stok_hareket_raporu.csv"'})
+
+# ==========================================
+# PALET VE İMHA (WASTE) ENDPOINT'LERİ
+# ==========================================
+
+@app.post("/pallet/start")
+def start_pallet(payload: PalletPayload):
+    global active_pallet_date
+    active_pallet_date = payload.expiration_date
+    return {"status": "success", "active_date": active_pallet_date.isoformat()}
+
+@app.post("/pallet/stop")
+def stop_pallet():
+    global active_pallet_date
+    active_pallet_date = None
+    return {"status": "success"}
+
+@app.get("/pallet/status")
+def get_pallet_status():
+    global active_pallet_date
+    if active_pallet_date:
+        return {"status": "active", "expiration_date": active_pallet_date.isoformat()}
+    return {"status": "inactive"}
+
+class StockUpdatePayload(BaseModel):
+    product_name: str
+    new_quantity: int
+
+@app.post("/stock/update")
+def update_stock_manual(payload: StockUpdatePayload, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.name == payload.product_name).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Ürün bulunamadı")
+    
+    stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
+    if stock:
+        stock.warehouse_quantity = payload.new_quantity
+        db.commit()
+        return {"status": "success", "new_quantity": stock.warehouse_quantity}
+    raise HTTPException(status_code=404, detail="Stok kaydı bulunamadı")
+
+@app.post("/batches/{batch_id}/waste")
+def waste_batch(batch_id: int, db: Session = Depends(get_db)):
+    batch = db.query(models.Batch).filter(models.Batch.id == batch_id).first()
+    if not batch or batch.quantity <= 0:
+        raise HTTPException(status_code=404, detail="Batch not found or empty")
+        
+    stock = db.query(models.Stock).filter(models.Stock.product_id == batch.product_id).first()
+    if stock:
+        stock.warehouse_quantity -= batch.quantity
+        new_movement = models.Movement(product_id=batch.product_id, movement_type="WASTE", box_count=batch.quantity)
+        db.add(new_movement)
+    batch.quantity = 0
+    db.commit()
+    return {"status": "success"}
+
+# ==========================================
+# B2B E-POSTA / SİPARİŞ ENDPOINT'LERİ (2 AŞAMALI ONAY)
+# ==========================================
+
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "SİZİN_MAİL_ADRESİNİZ@gmail.com"
+SENDER_PASSWORD = "GOOGLE_UYGULAMA_ŞİFRENİZ_BURAYA"
+
+WORKER_EMAIL = "depo_gorevlisi_mailiniz@gmail.com" # Görevlinin (Sizin) onay mailini alacağınız adres
+WHOLESALER_EMAIL = "toptanci_sirket@example.com" # Mailin kime gideceğini buraya yazın
+
+# Spam engellemek için hangi ürün için ne zaman onay maili atıldığını takip ediyoruz
+last_approval_email_sent = {} # { product_id: datetime }
+
+def send_email_helper(to_email, subject, content):
+    if SENDER_EMAIL == "SİZİN_MAİL_ADRESİNİZ@gmail.com":
+        print(f"[MAIL SIMULASYONU] Kime: {to_email} | Konu: {subject}")
+        return True
+        
+    try:
+        msg = MIMEText(content, 'html')
+        msg["Subject"] = subject
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = to_email
+        
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"[MAIL HATASI] E-posta gönderilemedi: {e}")
+        return False
+
+def check_and_send_approval_email(product_id, product_name, current_qty, threshold):
+    global last_approval_email_sent
+    now = datetime.now()
+    last_sent = last_approval_email_sent.get(product_id)
+    
+    # Eğer son 24 saat içinde zaten mail atıldıysa tekrar atma (spam engelleme)
+    if last_sent and (now - last_sent).total_seconds() < 86400:
+        return
+        
+    last_approval_email_sent[product_id] = now
+    
+    # Görevliye gidecek Onay Maili İçeriği (İçinde Tıklanabilir Buton Var)
+    approval_link = f"http://127.0.0.1:8000/approve-order/{product_id}"
+    subject = f"ONAY BEKLİYOR: {product_name.capitalize()} Stoğu Azaldı!"
+    content = f"""
+    <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2 style="color: #ef6c00;">Kritik Stok Uyarısı!</h2>
+            <p>Depodaki <strong>{product_name.capitalize()}</strong> stoğu kritik seviyeye ({current_qty} adet) düşmüştür. (Sınır: {threshold})</p>
+            <p>Toptancıdan yeni bir parti (50 Koli) sipariş geçilmesini onaylıyor musunuz?</p>
+            <br>
+            <a href="{approval_link}" style="background-color: #2e7d32; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">SİPARİŞİ ONAYLA VE TOPTANCIYA İLET</a>
+            <br><br>
+            <small>Bu otomatik bir sistem mesajıdır.</small>
+        </body>
+    </html>
+    """
+    
+    send_email_helper(WORKER_EMAIL, subject, content)
+    print(f"[BİLGİ] {product_name} için Görevliye Onay Maili Gönderildi.")
+
+@app.get("/alerts/low-stock")
+def get_low_stock_alerts(db: Session = Depends(get_db)):
+    products = db.query(models.Product).all()
+    alerts = []
+    
+    for p in products:
+        stock = db.query(models.Stock).filter(models.Stock.product_id == p.id).first()
+        qty = stock.warehouse_quantity if stock else 0
+        if qty <= p.critical_threshold:
+            alerts.append({
+                "product_id": p.id,
+                "product_name": p.name.capitalize(),
+                "current_quantity": qty,
+                "critical_threshold": p.critical_threshold
+            })
+            
+    return alerts
+
+# Eskiden POST idi, şimdi görevli mailden linke tıklayacağı için GET oldu!
+@app.get("/approve-order/{product_id}", response_class=HTMLResponse)
+def approve_order(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        return HTMLResponse(content="<h1>Hata</h1><p>Ürün bulunamadı.</p>", status_code=404)
+        
+    stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
+    qty = stock.warehouse_quantity if stock else 0
+    
+    # 2. AŞAMA: Toptancıya Giden Gerçek Sipariş Maili
+    subject = f"ACİL SİPARİŞ: {product.name.capitalize()} (Otomatik Sistem Mesajı)"
+    content = f"""
+    <html>
+        <body>
+            <p>Sayın Tedarikçi,</p>
+            <p>Depomuzda <strong>{product.name.capitalize()}</strong> ürünü stokları kritik seviyeye (Mevcut: {qty}) düşmüştür.</p>
+            <p>Lütfen en kısa sürede adresimize <strong>50 koli</strong> gönderim sağlayınız.</p>
+            <br><p>İyi çalışmalar,<br>Akıllı Depo Sistemi</p>
+        </body>
+    </html>
+    """
+    
+    success = send_email_helper(WHOLESALER_EMAIL, subject, content)
+    
+    if success:
+        return f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                <div style="max-width: 500px; margin: 0 auto; background-color: #e8f5e9; padding: 30px; border-radius: 10px; border: 1px solid #4caf50;">
+                    <h1 style="color: #2e7d32;">✅ SİPARİŞ ONAYLANDI!</h1>
+                    <p style="font-size: 18px;"><b>{product.name.capitalize()}</b> için toptancıya ({WHOLESALER_EMAIL}) resmi sipariş e-postası başarıyla iletildi.</p>
+                    <p style="color: #666;">Bu pencereyi kapatabilirsiniz.</p>
+                </div>
+            </body>
+        </html>
+        """
+    else:
+        return "<h1>Hata Oluştu!</h1><p>Toptancıya e-posta iletilemedi. Konsol loglarını kontrol edin.</p>"
