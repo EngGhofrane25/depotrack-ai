@@ -3,39 +3,138 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Depo Stok Yönetim Paneli</title>
+    <title>Akıllı Depo Yönetimi (B2B SaaS)</title>
     <!-- Google Fonts: Roboto -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    
+    <!-- Mega Güncelleme Kütüphaneleri -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        :root {
+            /* Light Mode Variables (Overrides style.css slightly for unity) */
+            --bg-color: #f8fafc;
+            --text-color: #1e293b;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --header-bg: #2c3e50;
+            --card-bg: #ffffff;
+            --surface-color: #ffffff;
+            --table-border: #e2e8f0;
+            --border-color: #e2e8f0;
+        }
+        
+        [data-theme="dark"] {
+            /* Premium Dark Mode (Slate / Vercel Style) */
+            --bg-color: #0f172a;           /* Slate 900 - Deep background */
+            --text-color: #f1f5f9;         /* Slate 100 - Main text */
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;     /* Slate 400 - Muted text */
+            --header-bg: #1e293b;          /* Slate 800 - Header */
+            --card-bg: #1e293b;            /* Slate 800 - Cards/Surfaces */
+            --surface-color: #1e293b;
+            --table-border: #334155;       /* Slate 700 - Borders */
+            --border-color: #334155;
+        }
+
+        .header {
+            background-color: var(--header-bg);
+            padding: 20px; color: white; display: flex; justify-content: space-between; align-items: center;
+        }
+        
+        .box-shadow {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        /* Tablo Gece Modu Uyumları */
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid var(--table-border); padding: 8px; text-align: left; }
+        th { background-color: rgba(0,0,0,0.05); }
+        [data-theme="dark"] th { background-color: rgba(255,255,255,0.05); }
+
+        /* Login Overlay */
+        #login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 9999;
+        }
+        .login-box {
+            background: white; padding: 40px; border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            text-align: center; width: 300px;
+        }
+        .login-box h2 { color: #2c3e50; margin-top: 0; }
+        .login-box input {
+            width: 100%; padding: 10px; margin: 10px 0;
+            border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;
+        }
+        .login-box button {
+            width: 100%; padding: 10px; background-color: #60a5fa;
+            color: white; border: none; border-radius: 5px; cursor: pointer;
+            font-weight: bold; font-size: 16px;
+        }
+        
+        /* Modal (QR Code) */
+        .modal {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0;
+            width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);
+            justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background-color: var(--card-bg); padding: 20px; border-radius: 8px;
+            text-align: center; width: 300px; position: relative;
+        }
+        .close-btn { position: absolute; top: 10px; right: 15px; cursor: pointer; font-size: 20px; }
+    </style>
 </head>
 <body>
 
-    <header class="app-header">
-        <div class="header-title">
-            <h1>Depo Stok Takip Sistemi</h1>
-            <p>Canlı Kamera ve Envanter Kontrolü</p>
+    <!-- 2. LOGIN OVERLAY -->
+    <div id="login-overlay">
+        <div class="login-box">
+            <h2>Hoş Geldiniz</h2>
+            <p style="color: #666; font-size: 14px;">Yönetici veya Görevli Girişi Yapınız</p>
+            <input type="text" id="username" placeholder="Kullanıcı Adı (admin / gorevli)">
+            <input type="password" id="password" placeholder="Şifre (12345)">
+            <button onclick="performLogin()">Giriş Yap</button>
+            <p id="login-error" style="color: red; font-size: 12px; display: none;"></p>
         </div>
-        <div class="header-actions">
-            <div class="header-status">
-                <span class="status-dot"></span> Sistem Aktif
-            </div>
-            <button id="download-report-btn" class="btn btn-primary">
-                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Rapor İndir
-            </button>
+    </div>
+
+    <header class="header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <div style="background-color: white; color: var(--header-bg); padding: 5px 10px; border-radius: 5px; font-weight: bold; font-size: 20px;">📦</div>
+            <h1 style="margin: 0; font-size: 24px;">Akıllı Depo & Stok Yönetimi</h1>
+        </div>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <button onclick="logout()" style="background-color: transparent; color: white; border: 1px solid white; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-size: 14px;">Çıkış Yap</button>
+            <div class="theme-toggle" onclick="toggleTheme()" title="Gece/Gündüz Modu" style="cursor: pointer;">🌙 Gece Modu</div>
         </div>
     </header>
-
     <main class="dashboard-container">
         
         <!-- Palet Mal Kabul Modülü -->
-        <section class="pallet-section box-shadow" style="background-color: #f0f7ff; border-left: 5px solid #1976d2; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+        <section class="pallet-section box-shadow" style="background-color: var(--card-bg); border-left: 5px solid #1976d2; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                 <div>
-                    <h3 style="color: #1976d2; margin-top: 0; margin-bottom: 10px;">📦 Palet / Kamyon Mal Kabul Modu</h3>
-                    <p style="margin: 0; font-size: 14px; color: #555;">Kameradan geçen ürünlerin SKT'sini topluca ayarlayın.</p>
+                    <h3 style="margin-top: 0; margin-bottom: 10px;">📦 Palet / Kamyon Mal Kabul Modu</h3>
+                    <p style="margin: 0; font-size: 14px; color: var(--text-secondary);">Kameradan geçen ürünlerin SKT'sini topluca ayarlayın.</p>
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center;">
                     <div id="pallet-status-badge" style="padding: 5px 10px; border-radius: 4px; background-color: #e0e0e0; font-weight: bold; font-size: 14px;">PASİF</div>
@@ -48,8 +147,8 @@
         
         <!-- SKT Uyarı Modülü -->
         <section class="expiration-alerts-section" id="expiration-alerts-container" style="display: none; margin-bottom: 20px;">
-            <div class="box-shadow" style="background-color: #fff3f3; border-left: 5px solid #d32f2f; border-radius: 8px; padding: 15px;">
-                <h3 style="color: #d32f2f; margin-top: 0; margin-bottom: 10px; display: flex; align-items: center;">
+            <div class="box-shadow" style="background-color: var(--card-bg); border-left: 5px solid #d32f2f; border-radius: 8px; padding: 15px;">
+                <h3 style="color: #ef5350; margin-top: 0; margin-bottom: 10px; display: flex; align-items: center;">
                     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                     SKT Uyarıları (Son Kullanım Tarihi Yaklaşanlar)
                 </h3>
@@ -61,8 +160,8 @@
 
         <!-- KRİTİK STOK VE SİPARİŞ MODÜLÜ (YENİ) -->
         <section class="low-stock-alerts-section" id="low-stock-alerts-container" style="display: none; margin-bottom: 20px;">
-            <div class="box-shadow" style="background-color: #fff3e0; border-left: 5px solid #ef6c00; border-radius: 8px; padding: 15px;">
-                <h3 style="color: #ef6c00; margin-top: 0; margin-bottom: 10px; display: flex; align-items: center;">
+            <div class="box-shadow" style="background-color: var(--card-bg); border-left: 5px solid #ef6c00; border-radius: 8px; padding: 15px;">
+                <h3 style="color: #ffa726; margin-top: 0; margin-bottom: 10px; display: flex; align-items: center;">
                     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                     Kritik Stok Uyarıları (Toptancı Siparişi Bekliyor)
                 </h3>
@@ -72,30 +171,67 @@
             </div>
         </section>
 
+        <!-- 1. ANALİTİK DASHBOARD (CHART.JS) -->
+        <section class="analytics-section" style="margin-bottom: 20px;">
+            <div class="box-shadow" style="display: flex; gap: 20px; justify-content: space-between;">
+                <div style="flex: 1; text-align: center;">
+                    <h3 style="margin-top: 0;">📊 Canlı Stok Dağılımı</h3>
+                    <div style="height: 200px; display: flex; justify-content: center;">
+                        <canvas id="inventoryChart"></canvas>
+                    </div>
+                </div>
+                <div id="report-section" style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: rgba(52, 152, 219, 0.1); border-radius: 8px;">
+                    <h3 style="margin-top: 0; color: var(--text-primary);">Hızlı Raporlama</h3>
+                    <p style="text-align: center; color: var(--text-color); font-size: 14px; max-width: 80%;">
+                        Tüm stok hareketlerini, giriş çıkış loglarını ve mevcut envanter durumunu tek tıkla Excel'e aktarın.
+                    </p>
+                    <button onclick="downloadExcel()" style="background-color: #34d399; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 8px; margin-top: 10px;">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        Tüm Raporu Excel İndir (CSV)
+                    </button>
+                </div>
+            </div>
+        </section>
+
         <!-- Üst Taraftaki Stok Kartları -->
         <section class="stock-cards-section">
             <div class="card card-blue" id="card-elektronik">
-                <div class="card-title">Elektronik</div>
+                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    Elektronik 
+                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('elektronik')" title="Stoğu Düzenle">✏️</span>
+                </div>
                 <div class="card-value" id="stock-elektronik">--</div>
             </div>
             
             <div class="card card-red" id="card-gida">
-                <div class="card-title">Gıda</div>
+                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    Gıda 
+                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('gida')" title="Stoğu Düzenle">✏️</span>
+                </div>
                 <div class="card-value" id="stock-gida">--</div>
             </div>
             
             <div class="card card-green" id="card-temizlik">
-                <div class="card-title">Temizlik</div>
+                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    Temizlik 
+                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('temizlik')" title="Stoğu Düzenle">✏️</span>
+                </div>
                 <div class="card-value" id="stock-temizlik">--</div>
             </div>
             
             <div class="card card-yellow" id="card-kirtasiye">
-                <div class="card-title">Kırtasiye</div>
+                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    Kırtasiye 
+                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('kirtasiye')" title="Stoğu Düzenle">✏️</span>
+                </div>
                 <div class="card-value" id="stock-kirtasiye">--</div>
             </div>
             
             <div class="card card-purple" id="card-tekstil">
-                <div class="card-title">Tekstil</div>
+                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    Tekstil 
+                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('tekstil')" title="Stoğu Düzenle">✏️</span>
+                </div>
                 <div class="card-value" id="stock-tekstil">--</div>
             </div>
         </section>
@@ -125,14 +261,14 @@
         </section>
         
         <!-- Tüm SKT'ler ve İmha Paneli -->
-        <section class="all-batches-section box-shadow" style="margin-top: 20px; padding: 15px; border-radius: 8px; background-color: #fff;">
+        <section class="all-batches-section box-shadow" style="margin-top: 20px; padding: 15px; border-radius: 8px; background-color: var(--card-bg);">
             <div class="section-header">
                 <h2>Tüm Partiler ve SKT Yönetimi (İmha)</h2>
             </div>
             <div style="overflow-x:auto;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left;" id="batches-table">
                     <thead>
-                        <tr style="border-bottom: 2px solid #eee;">
+                        <tr style="border-bottom: 2px solid var(--border-color);">
                             <th style="padding: 10px;">Batch ID</th>
                             <th style="padding: 10px;">Ürün</th>
                             <th style="padding: 10px;">Miktar</th>
@@ -149,6 +285,16 @@
         </section>
 
     </main>
+
+    <!-- 5. QR KOD MODAL -->
+    <div id="qrModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeQRModal()">&times;</span>
+            <h3 id="qrModalTitle" style="margin-top: 0; color: var(--text-primary);">Karekod</h3>
+            <div id="qrcode" style="display: flex; justify-content: center; margin: 20px 0; background-color: white; padding: 10px; border-radius: 8px;"></div>
+            <p id="qrModalDesc" style="color: var(--text-secondary); font-size: 14px; margin-bottom: 0;"></p>
+        </div>
+    </div>
 
     <script src="script.js"></script>
 </body>

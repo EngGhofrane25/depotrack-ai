@@ -1,10 +1,10 @@
 :root {
-    /* Google Material Colors */
-    --google-blue: #4285F4;
-    --google-red: #EA4335;
-    --google-yellow: #FBBC05;
-    --google-green: #34A853;
-    --google-purple: #8E24AA;
+    /* Modern Pastel Colors */
+    --google-blue: #60a5fa;
+    --google-red: #f87171;
+    --google-yellow: #fbbf24;
+    --google-green: #4ade80;
+    --google-purple: #c084fc;
     
     --bg-color: #F8F9FA;
     --surface-color: #FFFFFF;

@@ -1,9 +1,10 @@
 from fastapi import FastAPI, Response, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import csv
+import io
 from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
@@ -70,6 +71,10 @@ class UpdateBatchPayload(BaseModel):
 class PalletPayload(BaseModel):
     expiration_date: datetime
 
+class LoginPayload(BaseModel):
+    username: str
+    password: str
+
 # Global State for Active Pallet Entry Mode
 active_pallet_date = None
 
@@ -80,6 +85,41 @@ active_pallet_date = None
 @app.get("/")
 def read_root():
     return {"message": "Depo Stok API'si SQLite Veritabanı ile Çalışıyor"}
+
+@app.post("/login")
+def login(payload: LoginPayload):
+    if payload.username == "admin" and payload.password == "12345":
+        return {"status": "success", "token": "admin-token-123", "role": "admin"}
+    elif payload.username == "gorevli" and payload.password == "12345":
+        return {"status": "success", "token": "worker-token-456", "role": "worker"}
+    raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya şifre")
+
+@app.get("/analytics")
+def get_analytics(db: Session = Depends(get_db)):
+    stocks = db.query(models.Stock).all()
+    labels = []
+    data = []
+    for s in stocks:
+        product = db.query(models.Product).filter(models.Product.id == s.product_id).first()
+        if product:
+            labels.append(product.name.capitalize())
+            data.append(s.warehouse_quantity)
+    return {"labels": labels, "data": data}
+
+@app.get("/export/csv")
+def export_csv(db: Session = Depends(get_db)):
+    movements = db.query(models.Movement).order_by(models.Movement.timestamp.desc()).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Urun", "Islem Yonu", "Kutu Sayisi", "Tarih"])
+    
+    for mov in movements:
+        product = db.query(models.Product).filter(models.Product.id == mov.product_id).first()
+        p_name = product.name.capitalize() if product else "Bilinmiyor"
+        writer.writerow([mov.id, p_name, mov.movement_type, mov.box_count, mov.timestamp.strftime("%Y-%m-%d %H:%M:%S")])
+        
+    output.seek(0)
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=depo_rapor.csv"})
 
 @app.get("/stock")
 def get_stock(db: Session = Depends(get_db)):
@@ -312,6 +352,23 @@ def get_pallet_status():
     if active_pallet_date:
         return {"status": "active", "expiration_date": active_pallet_date.isoformat()}
     return {"status": "inactive"}
+
+class StockUpdatePayload(BaseModel):
+    product_name: str
+    new_quantity: int
+
+@app.post("/stock/update")
+def update_stock_manual(payload: StockUpdatePayload, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.name == payload.product_name).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Ürün bulunamadı")
+    
+    stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
+    if stock:
+        stock.warehouse_quantity = payload.new_quantity
+        db.commit()
+        return {"status": "success", "new_quantity": stock.warehouse_quantity}
+    raise HTTPException(status_code=404, detail="Stok kaydı bulunamadı")
 
 @app.post("/batches/{batch_id}/waste")
 def waste_batch(batch_id: int, db: Session = Depends(get_db)):
