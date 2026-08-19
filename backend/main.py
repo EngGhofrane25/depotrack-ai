@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Response, Depends, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import csv
@@ -25,6 +26,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class NoCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+app.add_middleware(NoCacheMiddleware)
 
 # Varsayılan başlangıç verileri (Seed Data)
 INITIAL_PRODUCTS = [
@@ -133,6 +144,7 @@ def get_stock(db: Session = Depends(get_db)):
 
 @app.post("/events")
 def add_event(event: EventPayload, db: Session = Depends(get_db)):
+    print(f"[EVENT] POST /events received: tracking_id={event.tracking_id}, product_id={event.product_id}, direction={event.direction}")
     existing_event = db.query(models.Event).filter(
         models.Event.tracking_id == event.tracking_id,
         models.Event.direction == event.direction
@@ -310,6 +322,7 @@ def update_batch_expiration(batch_id: int, payload: UpdateBatchPayload, db: Sess
 @app.get("/movements")
 def get_movements(db: Session = Depends(get_db)):
     movements = db.query(models.Movement).order_by(models.Movement.id.desc()).limit(50).all()
+    print(f"[POLL] GET /movements called — returning {len(movements)} rows, newest timestamp: {movements[0].timestamp if movements else 'N/A'}")
     return [{
         "id": m.id,
         "product_id": m.product_id,
