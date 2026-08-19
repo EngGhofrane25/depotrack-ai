@@ -107,7 +107,7 @@ def main():
         cv2.line(frame, (0, LINE_Y), (w, LINE_Y), (255, 0, 0), 2)
         cv2.putText(frame, "REFERANS CIZGISI", (10, LINE_Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        results = model.track(frame, persist=True, verbose=False)
+        results = model.track(frame, persist=True, verbose=False, conf=0.15)
 
         current_trackers = []
         for r in results:
