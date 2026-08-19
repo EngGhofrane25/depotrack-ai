@@ -150,7 +150,7 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
     if stock and product:
         if event.direction == "IN":
             stock.warehouse_quantity += 1
-            new_movement = models.Movement(product_id=event.product_id, movement_type="IN", box_count=1)
+            new_movement = models.Movement(product_id=event.product_id, movement_type="IN", box_count=1, timestamp=datetime.now())
             db.add(new_movement)
             
             # FEFO: Otomatik SKT Atama (Aktif palet tarihi varsa onu kullan, yoksa varsayılan)
@@ -166,7 +166,7 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
         elif event.direction == "OUT":
             if stock.warehouse_quantity > 0:
                 stock.warehouse_quantity -= 1
-                new_movement = models.Movement(product_id=event.product_id, movement_type="OUT", box_count=1)
+                new_movement = models.Movement(product_id=event.product_id, movement_type="OUT", box_count=1, timestamp=datetime.now())
                 db.add(new_movement)
                 
                 # FEFO: En eski partiden düş (SKT'si en yakın olan)

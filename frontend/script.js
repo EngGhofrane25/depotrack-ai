@@ -40,9 +40,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const productNames = {1: "Elektronik", 2: "Gıda", 3: "Tekstil", 4: "Kırtasiye", 5: "Temizlik"};
             const productName = productNames[log.product_id] || "Bilinmeyen Ürün";
             
-            // Tarihi formatla (Veritabanından UTC geliyor, JS'in yerel saate çevirmesi için Z ekliyoruz)
-            const ts = log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z';
-            const date = new Date(ts);
+            // Tarihi formatla
+            const date = new Date(log.timestamp);
             const timeString = date.toLocaleTimeString('tr-TR');
             
             li.innerHTML = `

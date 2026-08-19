@@ -91,9 +91,10 @@ def main():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter('output.mp4', fourcc, fps, (w, h))
 
-    # KENDİ TAKİP ALGORİTMAMIZ İÇİN DEĞİŞKENLER
-    my_trackers = [] 
-    next_id = 1
+    # Nesne takibi için gerekli değişkenler
+    current_trackers = []
+    import time
+    next_id = int(time.time()) # Her başlatmada eşsiz ID üretmek için zamanı kullanıyoruz
 
     print("[BİLGİ] Görüntü akışı ve kayıt başladı (output.mp4).")
 
@@ -170,14 +171,16 @@ def main():
                         try:
                             payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
                             requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
-                        except: pass
+                        except Exception as e:
+                            print(f"[HATA] Backend'e gönderilemedi (GİRDİ): {e}")
                         
                     elif previous_state == 1 and current_state == 0:
                         print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
                         try:
                             payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
                             requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=1)
-                        except: pass
+                        except Exception as e:
+                            print(f"[HATA] Backend'e gönderilemedi (ÇIKTI): {e}")
 
                     # Objeyi güncelleyip yeni listeye ekle, eskisinden çıkar
                     best_match['center'] = (center_x, center_y)
