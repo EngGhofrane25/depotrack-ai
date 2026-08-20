@@ -8,3 +8,5 @@ stock.db
 *.pt
 *.onnx
 .DS_Store
+scratch/node_modules/
+node_modules/
