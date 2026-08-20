@@ -173,40 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ==========================================
     // CANLI VERİ ÇEKME DÖNGÜSÜ
     // ==========================================
-    function updateExpirations(expirations) {
-        if (localStorage.getItem("userRole") === "worker") return; // Görevli uyarı görmez
-        const container = document.getElementById("expiration-alerts-container");
-        const list = document.getElementById("expiration-list");
-        
-        // Tehlikeli (7 günden az kalan veya tarihi geçen) partileri filtrele
-        const dangerousExpirations = expirations.filter(e => e.status === "danger" || e.status === "expired");
-        
-        if (dangerousExpirations.length === 0) {
-            container.style.display = "none";
-            return;
-        }
-        
-        container.style.display = "block";
-        list.innerHTML = "";
-        
-        dangerousExpirations.forEach(exp => {
-            const item = document.createElement("div");
-            item.style.backgroundColor = exp.status === "expired" ? "#ef4444" : "#f87171";
-            item.style.color = "white";
-            item.style.padding = "5px 12px";
-            item.style.borderRadius = "15px";
-            item.style.fontSize = "13px";
-            item.style.fontWeight = "500";
-            item.style.boxShadow = "0 2px 4px rgba(0,0,0,0.1)";
-            
-            let timeText = exp.status === "expired" 
-                ? "SKT GEÇTİ!" 
-                : `Son ${exp.days_left} Gün!`;
-                
-            item.innerHTML = `<strong>${exp.product_name}</strong> (${exp.quantity} Koli) - ${timeText}`;
-            list.appendChild(item);
-        });
-    }
+
 
     let previousStock = null;
 
@@ -247,7 +214,6 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const expRes = await fetch("http://localhost:8000/expirations", { cache: "no-store" });
             const expData = await expRes.json();
-            updateExpirations(expData);
             if (typeof renderAllBatches === "function") {
                 renderAllBatches(expData);
             }
@@ -275,7 +241,6 @@ function applyRoleUI() {
     const role = localStorage.getItem("userRole");
     const reportSection = document.getElementById("report-section");
     const lowStockAlerts = document.getElementById("low-stock-alerts-container");
-    const expirationAlerts = document.getElementById("expiration-alerts-container");
     const adminIcons = document.querySelectorAll(".admin-only");
     
     if (role === "worker") {
@@ -303,11 +268,16 @@ window.promptEditStock = async function(productName) {
     const newVal = prompt(productName.toUpperCase() + " için yeni stok miktarını girin:", currentVal);
     
     if (newVal !== null && newVal.trim() !== "" && !isNaN(newVal)) {
+        let parsedVal = parseInt(newVal);
+        if (parsedVal < 0) {
+            alert("Stok 0'dan küçük olamaz!");
+            parsedVal = 0;
+        }
         try {
             const res = await fetch("http://localhost:8000/stock/update", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ product_name: productName, new_quantity: parseInt(newVal) })
+                body: JSON.stringify({ product_name: productName, new_quantity: parsedVal })
             });
             const data = await res.json();
             if (data.status === "success") {
@@ -340,81 +310,60 @@ window.promptEditStock = async function(productName) {
     }
 
     // ==========================================
-    // GÜN 15: PALET MODU VE İMHA (WASTE) YÖNETİMİ
+    // SKT VE PARTİ YÖNETİMİ
     // ==========================================
 
-    const btnStartPallet = document.getElementById("btn-start-pallet");
-    const btnStopPallet = document.getElementById("btn-stop-pallet");
-    const inputPalletDate = document.getElementById("pallet-date-input");
-    const badgePalletStatus = document.getElementById("pallet-status-badge");
     const batchesList = document.getElementById("batches-list");
 
-    if (btnStartPallet) {
-        btnStartPallet.addEventListener("click", async () => {
-            const dateValue = inputPalletDate.value;
-            if (!dateValue) {
-                alert("Lütfen önce bir tarih seçin!");
+    window.promptEditSKT = async function(batchId, currentSKT) {
+        if (localStorage.getItem("userRole") === "worker") {
+            alert("Bu işlem için yetkiniz yok!");
+            return;
+        }
+        
+        let sktParts = currentSKT.split(".");
+        let defaultDate = sktParts.length === 3 ? `${sktParts[2]}-${sktParts[1]}-${sktParts[0]}` : "";
+        
+        const newDate = prompt("Parti #" + batchId + " için yeni SKT girin (YYYY-AA-GG formatında):", defaultDate);
+        
+        if (newDate !== null && newDate.trim() !== "") {
+            // YYYY-MM-DD validasyonu
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                alert("Lütfen geçerli bir tarih formatı girin (Örn: 2024-12-31)");
                 return;
             }
-            const dateObj = new Date(dateValue);
+            
             try {
-                await fetch("http://localhost:8000/pallet/start", {
-                    method: "POST",
+                const dateObj = new Date(newDate);
+                const res = await fetch("http://localhost:8000/batches/" + batchId, {
+                    method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ expiration_date: dateObj.toISOString() })
                 });
-                checkPalletStatus();
-            } catch (e) {
-                console.error("Palet başlatılamadı:", e);
+                const data = await res.json();
+                if (data.status === "success") {
+                    fetchLiveStock(); // Tabloyu anında yenile
+                } else {
+                    alert("Güncelleme başarısız: " + data.detail);
+                }
+            } catch(e) {
+                alert("Sunucu ile iletişim kurulamadı.");
             }
-        });
-    }
-
-    if (btnStopPallet) {
-        btnStopPallet.addEventListener("click", async () => {
-            try {
-                await fetch("http://localhost:8000/pallet/stop", { method: "POST" });
-                checkPalletStatus();
-            } catch (e) {
-                console.error("Palet durdurulamadı:", e);
-            }
-        });
-    }
-
-    window.checkPalletStatus = async function() {
-        if (!badgePalletStatus) return;
-        try {
-            const res = await fetch("http://localhost:8000/pallet/status", { cache: "no-store" });
-            const data = await res.json();
-            if (data.status === "active") {
-                badgePalletStatus.innerText = "AKTİF (Tarih: " + new Date(data.expiration_date).toLocaleDateString("tr-TR") + ")";
-                badgePalletStatus.style.backgroundColor = "#4caf50";
-                badgePalletStatus.style.color = "white";
-                btnStartPallet.style.display = "none";
-                btnStopPallet.style.display = "inline-block";
-                inputPalletDate.disabled = true;
-            } else {
-                badgePalletStatus.innerText = "PASİF";
-                badgePalletStatus.style.backgroundColor = "#e0e0e0";
-                badgePalletStatus.style.color = "black";
-                btnStartPallet.style.display = "inline-block";
-                btnStopPallet.style.display = "none";
-                inputPalletDate.disabled = false;
-            }
-        } catch (e) {
-            console.error("Palet durumu alınamadı:", e);
         }
     };
 
     window.wasteBatch = async function(batchId) {
-        if (!confirm("Bu partiyi imha etmek (çöpe atmak) istediğinize emin misiniz? Stoklardan silinecektir.")) {
+        if (localStorage.getItem("userRole") === "worker") {
+            alert("Yetkiniz yok!");
             return;
         }
+        if (!confirm("Bu partideki tüm koliler çöpe atılacak/imha edilecek. Onaylıyor musunuz?")) return;
+        
         try {
             await fetch(`http://localhost:8000/batches/${batchId}/waste`, { method: "POST" });
             fetchLiveStock(); // Tabloyu anında yenile
         } catch (e) {
-            console.error("İmha işlemi başarısız:", e);
+            console.error("İmha hatası", e);
         }
     };
 
@@ -452,6 +401,7 @@ window.promptEditStock = async function(productName) {
                 <td style="padding: 10px; color: ${statusColor}; font-weight: bold;">${statusText} (${exp.days_left} gün)</td>
                 <td style="padding: 10px; display: flex; gap: 5px;">
                     ${localStorage.getItem("userRole") !== "worker" ? `
+                    <button onclick="promptEditSKT(${exp.batch_id}, '${exp.expiration_date}')" style="background-color: #f59e0b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">📅 SKT Düzenle</button>
                     <button onclick="wasteBatch(${exp.batch_id})" style="background-color: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">İmha Et</button>
                     <button onclick="generateQR(${exp.batch_id}, '${exp.product_name}', '${exp.expiration_date}')" style="background-color: #64748b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 3px;">
                         <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><rect x="7" y="7" width="3" height="3"></rect><rect x="14" y="7" width="3" height="3"></rect><rect x="7" y="14" width="3" height="3"></rect><rect x="14" y="14" width="3" height="3"></rect></svg>

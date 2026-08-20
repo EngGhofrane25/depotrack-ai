@@ -86,8 +86,7 @@ class LoginPayload(BaseModel):
     username: str
     password: str
 
-# Global State for Active Pallet Entry Mode
-active_pallet_date = None
+
 
 # ==========================================
 # API UÇLARI
@@ -165,12 +164,8 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
             new_movement = models.Movement(product_id=event.product_id, movement_type="IN", box_count=1, timestamp=datetime.now())
             db.add(new_movement)
             
-            # FEFO: Otomatik SKT Atama (Aktif palet tarihi varsa onu kullan, yoksa varsayılan)
-            global active_pallet_date
-            if active_pallet_date:
-                exp_date = active_pallet_date
-            else:
-                exp_date = datetime.now() + timedelta(days=product.expiration_days)
+            # SKT: Varsayılan ömür (expiration_days)
+            exp_date = datetime.now() + timedelta(days=product.expiration_days)
                 
             new_batch = models.Batch(product_id=event.product_id, quantity=1, expiration_date=exp_date)
             db.add(new_batch)
@@ -230,11 +225,7 @@ def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
         db.add(new_movement)
         
         # FEFO: Batch oluştur
-        global active_pallet_date
-        if active_pallet_date:
-            exp_date = active_pallet_date
-        else:
-            exp_date = datetime.now() + timedelta(days=product.expiration_days)
+        exp_date = datetime.now() + timedelta(days=product.expiration_days)
             
         new_batch = models.Batch(product_id=payload.product_id, quantity=payload.quantity, expiration_date=exp_date)
         db.add(new_batch)
@@ -347,24 +338,7 @@ def download_report(db: Session = Depends(get_db)):
 # PALET VE İMHA (WASTE) ENDPOINT'LERİ
 # ==========================================
 
-@app.post("/pallet/start")
-def start_pallet(payload: PalletPayload):
-    global active_pallet_date
-    active_pallet_date = payload.expiration_date
-    return {"status": "success", "active_date": active_pallet_date.isoformat()}
 
-@app.post("/pallet/stop")
-def stop_pallet():
-    global active_pallet_date
-    active_pallet_date = None
-    return {"status": "success"}
-
-@app.get("/pallet/status")
-def get_pallet_status():
-    global active_pallet_date
-    if active_pallet_date:
-        return {"status": "active", "expiration_date": active_pallet_date.isoformat()}
-    return {"status": "inactive"}
 
 class StockUpdatePayload(BaseModel):
     product_name: str
@@ -372,6 +346,9 @@ class StockUpdatePayload(BaseModel):
 
 @app.post("/stock/update")
 def update_stock_manual(payload: StockUpdatePayload, db: Session = Depends(get_db)):
+    if payload.new_quantity < 0:
+        payload.new_quantity = 0
+        
     product = db.query(models.Product).filter(models.Product.name == payload.product_name).first()
     if not product:
         raise HTTPException(status_code=404, detail="Ürün bulunamadı")
