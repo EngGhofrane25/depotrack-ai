@@ -6,7 +6,9 @@ try:
 except AttributeError:
     pass
 
-from fastapi import FastAPI, Response, Depends, HTTPException
+from fastapi import FastAPI, Response, Depends, HTTPException, BackgroundTasks, Security
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -25,6 +27,29 @@ from . import models, schemas
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Depo Stok Backend API (SQLite + FEFO)")
+
+# ==========================================
+# GÜVENLİK VE JWT YAPILANDIRMASI
+# ==========================================
+SECRET_KEY = "depo_stok_super_gizli_anahtari"
+ALGORITHM = "HS256"
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Yetkisiz erişim")
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Yetkisiz erişim - Token Geçersiz")
+
+
 
 app.add_middleware(
     CORSMiddleware,
