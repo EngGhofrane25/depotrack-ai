@@ -1,3 +1,11 @@
+import sys
+import io
+try:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+except AttributeError:
+    pass
+
 from fastapi import FastAPI, Response, Depends, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,7 +13,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import csv
-import io
 from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
@@ -237,35 +244,49 @@ def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
 @app.post("/stock/out")
 def stock_out(payload: ManualStockPayload, db: Session = Depends(get_db)):
     stock = db.query(models.Stock).filter(models.Stock.product_id == payload.product_id).first()
-    if stock and stock.warehouse_quantity >= payload.quantity:
-        stock.warehouse_quantity -= payload.quantity
-        new_movement = models.Movement(product_id=payload.product_id, movement_type="OUT", box_count=payload.quantity)
-        db.add(new_movement)
-        
-        # FEFO mantığı (Quantity kadar düş)
-        remaining_to_deduct = payload.quantity
-        while remaining_to_deduct > 0:
-            oldest_batch = db.query(models.Batch).filter(
-                models.Batch.product_id == payload.product_id,
-                models.Batch.quantity > 0
-            ).order_by(models.Batch.expiration_date.asc()).first()
-            
-            if not oldest_batch:
-                break
-                
-            if oldest_batch.quantity >= remaining_to_deduct:
-                oldest_batch.quantity -= remaining_to_deduct
-                remaining_to_deduct = 0
-            else:
-                remaining_to_deduct -= oldest_batch.quantity
-                oldest_batch.quantity = 0
-                
-        # 2 AŞAMALI ONAY: Kritik stok kontrolü (Manuel çıkış yapıldıktan sonra)
-        product = db.query(models.Product).filter(models.Product.id == payload.product_id).first()
-        if product and stock.warehouse_quantity <= product.critical_threshold:
-            check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
-                
-        db.commit()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stok kaydı bulunamadı")
+
+    if stock.warehouse_quantity < payload.quantity:
+        raise HTTPException(status_code=400, detail=f"Yetersiz stok: mevcut {stock.warehouse_quantity}, istenen {payload.quantity}")
+
+    stock.warehouse_quantity -= payload.quantity
+    new_movement = models.Movement(product_id=payload.product_id, movement_type="OUT", box_count=payload.quantity)
+    db.add(new_movement)
+
+    # FEFO mantigi: once tum gecerli partileri hafizaya yukle, sonra memory uzerinden dus.
+    # autoflush=False nedeniyle DB'deki stale verilerle while loopsonsuz dongu olusturur,
+    # bu yuzden tek seferde yukleyip Python listesi uzerinden yuruyoruz.
+    batches = db.query(models.Batch).filter(
+        models.Batch.product_id == payload.product_id,
+        models.Batch.quantity > 0
+    ).order_by(models.Batch.expiration_date.asc()).all()
+
+    remaining_to_deduct = payload.quantity
+    max_iterations = len(batches) + 1  # her batch en fazla 1 kez ziyaret edilir
+    for _ in range(max_iterations):
+        if remaining_to_deduct <= 0:
+            break
+        found = False
+        for batch in batches:
+            if batch.quantity > 0:
+                found = True
+                if batch.quantity >= remaining_to_deduct:
+                    batch.quantity -= remaining_to_deduct
+                    remaining_to_deduct = 0
+                    break
+                else:
+                    remaining_to_deduct -= batch.quantity
+                    batch.quantity = 0
+        if not found:
+            break
+
+    # 2 ASAMALI ONAY: Kritik stok kontrolu (Manuel cikis yapildiktan sonra)
+    product = db.query(models.Product).filter(models.Product.id == payload.product_id).first()
+    if product and stock.warehouse_quantity <= product.critical_threshold:
+        check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
+
+    db.commit()
     return {"status": "success"}
 
 @app.get("/expirations")
