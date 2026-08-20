@@ -274,7 +274,7 @@ window.promptEditStock = async function(productName) {
             parsedVal = 0;
         }
         try {
-            const res = await fetch("http://localhost:8000/stock/update", {
+            const res = await fetchWithAuth("http://localhost:8000/stock/update", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ product_name: productName, new_quantity: parsedVal })
@@ -335,7 +335,7 @@ window.promptEditStock = async function(productName) {
             
             try {
                 const dateObj = new Date(newDate);
-                const res = await fetch("http://localhost:8000/batches/" + batchId, {
+                const res = await fetchWithAuth("http://localhost:8000/batches/" + batchId, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ expiration_date: dateObj.toISOString() })

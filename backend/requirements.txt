@@ -6,3 +6,5 @@ ultralytics>=8.0
 torch
 torchvision
 pyyaml
+
+psycopg2-binary # PostgreSQL adapter

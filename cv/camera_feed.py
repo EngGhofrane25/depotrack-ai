@@ -101,6 +101,7 @@ def main():
     out = cv2.VideoWriter('output.mp4', fourcc, cam_fps, (w, h))
 
     my_trackers = []
+    debounce_timers = {}
     next_id = int(time.time()) # Zaman bazlı ID: her başlatmada eşsiz, backend duplicate kontrolüyle uyumlu
     last_results = None
     frame_count = 0
@@ -140,7 +141,7 @@ def main():
 
         if run_detection:
             detect_frame = cv2.resize(frame, (DETECT_WIDTH, detect_h))
-            results = model.track(detect_frame, persist=True, verbose=False, conf=0.15)
+            results = model.track(detect_frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.15)
             last_results = results
         else:
             results = last_results  # Atlanan karelerde son algilama sonuclarini kullan
@@ -197,15 +198,17 @@ def main():
                                 print(f"[BACKEND HATASI - IN] {e}")
 
                         elif previous_state == 1 and current_state == 0:
-                            product_id = classify_cache.get(my_id, 0)
-                            product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
-                            print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
-                            try:
-                                payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
-                                resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
-                                print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
-                            except Exception as e:
-                                print(f"[BACKEND HATASI - OUT] {e}")
+                            if time.time() - debounce_timers.get(my_id, 0) >= 3.0:
+                                debounce_timers[my_id] = time.time()
+                                product_id = classify_cache.get(my_id, 0)
+                                product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
+                                print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
+                                try:
+                                    payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
+                                    resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
+                                    print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
+                                except Exception as e:
+                                    print(f"[BACKEND HATASI - OUT] {e}")
 
                         best_match['center'] = (center_x, center_y)
                         best_match['state'] = current_state

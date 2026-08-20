@@ -99,9 +99,11 @@ def read_root():
 @app.post("/login")
 def login(payload: LoginPayload):
     if payload.username == "admin" and payload.password == "12345":
-        return {"status": "success", "token": "admin-token-123", "role": "admin"}
+        token = create_access_token({"sub": payload.username, "role": "admin"})
+        return {"status": "success", "token": token, "role": "admin"}
     elif payload.username == "gorevli" and payload.password == "12345":
-        return {"status": "success", "token": "worker-token-456", "role": "worker"}
+        token = create_access_token({"sub": payload.username, "role": "worker"})
+        return {"status": "success", "token": token, "role": "worker"}
     raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya şifre")
 
 @app.get("/analytics")
@@ -361,7 +363,7 @@ def update_stock_manual(payload: StockUpdatePayload, db: Session = Depends(get_d
     raise HTTPException(status_code=404, detail="Stok kaydı bulunamadı")
 
 @app.post("/batches/{batch_id}/waste")
-def waste_batch(batch_id: int, db: Session = Depends(get_db)):
+def waste_batch(batch_id: int, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
     batch = db.query(models.Batch).filter(models.Batch.id == batch_id).first()
     if not batch or batch.quantity <= 0:
         raise HTTPException(status_code=404, detail="Batch not found or empty")
