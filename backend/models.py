@@ -50,3 +50,12 @@ class Batch(Base):
     quantity = Column(Integer, nullable=False, default=0)
     expiration_date = Column(DateTime, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_role = Column(String, nullable=False)
+    action = Column(String, nullable=False)
+    detail = Column(String, nullable=False)
+    timestamp = Column(DateTime, server_default=func.now())

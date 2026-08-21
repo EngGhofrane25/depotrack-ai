@@ -190,12 +190,15 @@ def main():
                             product_id = classify_cache.get(my_id, 0)
                             product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
                             print(f"✅ [GİRDİ] {product_name} (Özel ID: {my_id}) DEPOYA EKLENDİ! (+1)")
-                            try:
-                                payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
-                                resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
-                                print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
-                            except Exception as e:
-                                print(f"[BACKEND HATASI - IN] {e}")
+                            def send_in_event(payload):
+                                try:
+                                    resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
+                                    print(f"[BACKEND] Status: {resp.status_code}")
+                                except Exception as e:
+                                    print(f"[BACKEND HATASI - IN] {e}")
+                            
+                            payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
+                            threading.Thread(target=send_in_event, args=(payload,), daemon=True).start()
 
                         elif previous_state == 1 and current_state == 0:
                             if time.time() - debounce_timers.get(my_id, 0) >= 3.0:
@@ -203,12 +206,15 @@ def main():
                                 product_id = classify_cache.get(my_id, 0)
                                 product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
                                 print(f"❌ [ÇIKTI] {product_name} (Özel ID: {my_id}) DEPODAN ÇIKARILDI! (-1)")
-                                try:
-                                    payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
-                                    resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
-                                    print(f"[BACKEND] Status: {resp.status_code}, Response: {resp.text}")
-                                except Exception as e:
-                                    print(f"[BACKEND HATASI - OUT] {e}")
+                                def send_out_event(payload):
+                                    try:
+                                        resp = requests.post(f"{config.BACKEND_API_URL}/events", json=payload, timeout=3)
+                                        print(f"[BACKEND] Status: {resp.status_code}")
+                                    except Exception as e:
+                                        print(f"[BACKEND HATASI - OUT] {e}")
+                                
+                                payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
+                                threading.Thread(target=send_out_event, args=(payload,), daemon=True).start()
 
                         best_match['center'] = (center_x, center_y)
                         best_match['state'] = current_state

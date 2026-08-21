@@ -10,3 +10,7 @@ stock.db
 .DS_Store
 scratch/node_modules/
 node_modules/
+
+*.db
+*.mp4
+*.sqlite

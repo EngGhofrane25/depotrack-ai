@@ -6,7 +6,7 @@ try:
 except AttributeError:
     pass
 
-from fastapi import FastAPI, Response, Depends, HTTPException, BackgroundTasks, Security
+from fastapi import FastAPI, Response, Depends, HTTPException, BackgroundTasks, Security, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -26,7 +26,42 @@ from . import models, schemas
 # Tabloları oluştur
 Base.metadata.create_all(bind=engine)
 
+
+# ==========================================
+# WEBSOCKET (CANLI YAYIN) YONETIMI
+# ==========================================
+
+
 app = FastAPI(title="Depo Stok Backend API (SQLite + FEFO)")
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except:
+                pass
+
+manager = ConnectionManager()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
 # ==========================================
 # GÜVENLİK VE JWT YAPILANDIRMASI
@@ -176,7 +211,7 @@ def get_stock(db: Session = Depends(get_db)):
     return result
 
 @app.post("/events")
-def add_event(event: EventPayload, db: Session = Depends(get_db)):
+def add_event(event: EventPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     print(f"[EVENT] POST /events received: tracking_id={event.tracking_id}, product_id={event.product_id}, direction={event.direction}")
     existing_event = db.query(models.Event).filter(
         models.Event.tracking_id == event.tracking_id,
@@ -224,6 +259,7 @@ def add_event(event: EventPayload, db: Session = Depends(get_db)):
                 check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
                     
     db.commit()
+    background_tasks.add_task(manager.broadcast, "update")
     return {"status": "success"}
 
 @app.get("/products")
@@ -247,6 +283,7 @@ def add_product(payload: ProductPayload, db: Session = Depends(get_db)):
     db.add(new_stock)
     db.commit()
     
+    background_tasks.add_task(manager.broadcast, "update")
     return {"status": "success", "product_id": new_product.id}
 
 @app.post("/stock/in")
@@ -264,10 +301,11 @@ def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
         new_batch = models.Batch(product_id=payload.product_id, quantity=payload.quantity, expiration_date=exp_date)
         db.add(new_batch)
         db.commit()
+    background_tasks.add_task(manager.broadcast, "update")
     return {"status": "success"}
 
 @app.post("/stock/out")
-def stock_out(payload: ManualStockPayload, db: Session = Depends(get_db)):
+def stock_out(payload: ManualStockPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     stock = db.query(models.Stock).filter(models.Stock.product_id == payload.product_id).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stok kaydı bulunamadı")
@@ -312,6 +350,7 @@ def stock_out(payload: ManualStockPayload, db: Session = Depends(get_db)):
         check_and_send_approval_email(product.id, product.name, stock.warehouse_quantity, product.critical_threshold)
 
     db.commit()
+    background_tasks.add_task(manager.broadcast, "update")
     return {"status": "success"}
 
 @app.get("/expirations")
@@ -356,12 +395,25 @@ def update_batch_expiration(batch_id: int, payload: UpdateBatchPayload, db: Sess
         raise HTTPException(status_code=404, detail="Batch not found")
     batch.expiration_date = payload.expiration_date
     db.commit()
+    background_tasks.add_task(manager.broadcast, "update")
     return {"status": "success"}
 
 @app.get("/movements")
-def get_movements(db: Session = Depends(get_db)):
-    movements = db.query(models.Movement).order_by(models.Movement.id.desc()).limit(50).all()
-    print(f"[POLL] GET /movements called — returning {len(movements)} rows, newest timestamp: {movements[0].timestamp if movements else 'N/A'}")
+def get_movements(filter: str = "5", db: Session = Depends(get_db)):
+    query = db.query(models.Movement)
+    if filter != "5":
+        now = datetime.now()
+        if filter == "24h":
+            query = query.filter(models.Movement.timestamp >= now - timedelta(hours=24))
+        elif filter == "2d":
+            query = query.filter(models.Movement.timestamp >= now - timedelta(days=2))
+        elif filter == "1m":
+            query = query.filter(models.Movement.timestamp >= now - timedelta(days=30))
+        elif filter == "3m":
+            query = query.filter(models.Movement.timestamp >= now - timedelta(days=90))
+    movements = query.order_by(models.Movement.id.desc()).limit(1000).all()
+    if filter == "5":
+        movements = movements[:5]
     return [{
         "id": m.id,
         "product_id": m.product_id,
@@ -393,7 +445,7 @@ class StockUpdatePayload(BaseModel):
     new_quantity: int
 
 @app.post("/stock/update")
-def update_stock_manual(payload: StockUpdatePayload, db: Session = Depends(get_db)):
+def update_stock_manual(payload: StockUpdatePayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
     if payload.new_quantity < 0:
         payload.new_quantity = 0
         
@@ -403,13 +455,17 @@ def update_stock_manual(payload: StockUpdatePayload, db: Session = Depends(get_d
     
     stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
     if stock:
+        old_qty = stock.warehouse_quantity
         stock.warehouse_quantity = payload.new_quantity
+        new_audit = models.AuditLog(user_role=user, action="MANUAL_UPDATE", detail=f"{product.name} stoku {old_qty}'den {payload.new_quantity}'e degistirildi.")
+        db.add(new_audit)
         db.commit()
-        return {"status": "success", "new_quantity": stock.warehouse_quantity}
+        background_tasks.add_task(manager.broadcast, "update")
+    return {"status": "success", "new_quantity": stock.warehouse_quantity}
     raise HTTPException(status_code=404, detail="Stok kaydı bulunamadı")
 
 @app.post("/batches/{batch_id}/waste")
-def waste_batch(batch_id: int, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+def waste_batch(batch_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
     batch = db.query(models.Batch).filter(models.Batch.id == batch_id).first()
     if not batch or batch.quantity <= 0:
         raise HTTPException(status_code=404, detail="Batch not found or empty")
@@ -421,25 +477,28 @@ def waste_batch(batch_id: int, db: Session = Depends(get_db), user: str = Depend
         db.add(new_movement)
     batch.quantity = 0
     db.commit()
+    background_tasks.add_task(manager.broadcast, "update")
     return {"status": "success"}
 
 # ==========================================
 # B2B E-POSTA / SİPARİŞ ENDPOINT'LERİ (2 AŞAMALI ONAY)
 # ==========================================
 
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SENDER_EMAIL = "SİZİN_MAİL_ADRESİNİZ@gmail.com"
-SENDER_PASSWORD = "GOOGLE_UYGULAMA_ŞİFRENİZ_BURAYA"
+# Çevresel değişkenlerden (Environment Variables) güvenli okuma
+import os
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "simulasyon@local")
+SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "")
 
-WORKER_EMAIL = "depo_gorevlisi_mailiniz@gmail.com" # Görevlinin (Sizin) onay mailini alacağınız adres
-WHOLESALER_EMAIL = "toptanci_sirket@example.com" # Mailin kime gideceğini buraya yazın
+WORKER_EMAIL = os.getenv("WORKER_EMAIL", "admin@sirket.com")
+WHOLESALER_EMAIL = os.getenv("WHOLESALER_EMAIL", "toptanci@sirket.com")
 
 # Spam engellemek için hangi ürün için ne zaman onay maili atıldığını takip ediyoruz
 last_approval_email_sent = {} # { product_id: datetime }
 
 def send_email_helper(to_email, subject, content):
-    if SENDER_EMAIL == "SİZİN_MAİL_ADRESİNİZ@gmail.com":
+    if SENDER_EMAIL == "simulasyon@local" or not SENDER_PASSWORD:
         print(f"[MAIL SIMULASYONU] Kime: {to_email} | Konu: {subject}")
         return True
         
@@ -546,3 +605,80 @@ def approve_order(product_id: int, db: Session = Depends(get_db)):
         """
     else:
         return "<h1>Hata Oluştu!</h1><p>Toptancıya e-posta iletilemedi. Konsol loglarını kontrol edin.</p>"
+
+@app.get("/audit_logs")
+def get_audit_logs(db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+    logs = db.query(models.AuditLog).order_by(models.AuditLog.timestamp.desc()).limit(50).all()
+    return logs
+
+@app.post("/movements/{movement_id}/undo")
+def undo_movement(movement_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+    movement = db.query(models.Movement).filter(models.Movement.id == movement_id).first()
+    if not movement:
+        raise HTTPException(status_code=404, detail="Hareket bulunamadi")
+        
+    stock = db.query(models.Stock).filter(models.Stock.product_id == movement.product_id).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stok bulunamadi")
+        
+    if movement.movement_type == "IN":
+        stock.warehouse_quantity -= movement.box_count
+    else:
+        stock.warehouse_quantity += movement.box_count
+        
+    new_audit = models.AuditLog(user_role=user, action="UNDO_MOVEMENT", detail=f"Kamera hareketi (ID: {movement_id}, {movement.movement_type}) geri alindi.")
+    db.add(new_audit)
+    db.delete(movement)
+    db.commit()
+    background_tasks.add_task(manager.broadcast, "update")
+    return {"status": "success"}
+
+@app.post("/order/{product_id}")
+def place_order_to_supplier(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+        
+    subject = f"ACIL SIPARIS: {product.name.capitalize()} talebi"
+    content = f"""
+    <html>
+        <body>
+            <h2>Yeni Sipariş Talebi</h2>
+            <p>Sayın Toptancı,</p>
+            <p>Depomuzda <b>{product.name.capitalize()}</b> ürünü kritik stok seviyesine inmiştir.</p>
+            <p>Lütfen acil olarak <b>50 koli</b> {product.name.capitalize()} siparişi oluşturup depomuza sevk ediniz.</p>
+            <p>İyi çalışmalar.</p>
+        </body>
+    </html>
+    """
+    send_email("toptanci@tedarikci.com", subject, content)
+    
+    new_audit = models.AuditLog(user_role="admin", action="TOPTANCI SİPARİŞİ", detail=f"{product.name.capitalize()} için toptancıya otomatik sipariş maili gönderildi.")
+    db.add(new_audit)
+    db.commit()
+    
+    return {"status": "success", "message": "Order sent"}
+
+from pydantic import BaseModel
+class BrandUpdate(BaseModel):
+    brand_name: str
+
+@app.post("/batches/{batch_id}/brand")
+def update_batch_brand(batch_id: int, payload: BrandUpdate, db: Session = Depends(get_db)):
+    batch = db.query(models.Batch).filter(models.Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    batch.brand_name = payload.brand_name
+    db.commit()
+    
+    # Audit log
+    product = db.query(models.Product).filter(models.Product.id == batch.product_id).first()
+    new_audit = models.AuditLog(user_role="admin", action="MARKA GÜNCELLEMESİ", detail=f"#{batch_id} nolu koli için marka '{payload.brand_name}' olarak güncellendi.")
+    db.add(new_audit)
+    db.commit()
+    
+    background_tasks = BackgroundTasks()
+    background_tasks.add_task(manager.broadcast, "update")
+    
+    return {"status": "success", "brand_name": batch.brand_name}

@@ -1,3 +1,18 @@
+
+// GÜVENLİK İÇİN YENİ FETCH YARDIMCISI
+window.fetchWithAuth = async function(url, options = {}) {
+    const token = localStorage.getItem("adminToken");
+    if (!options.headers) options.headers = {};
+    if (token) options.headers["Authorization"] = "Bearer " + token;
+    
+    const response = await fetch(url, options);
+    if (response.status === 401) {
+        document.getElementById("login-overlay").style.display = "flex";
+        alert("Oturumunuz süresi doldu veya yetkisiz erişim! Lütfen tekrar giriş yapın.");
+    }
+    return response;
+};
+
 document.addEventListener("DOMContentLoaded", () => {
     
     // ==========================================
@@ -6,18 +21,18 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // DOM Elementlerini seçelim
     const elElektronik = document.getElementById("stock-elektronik");
-    const elGida = document.getElementById("stock-gida");
+    const elGıda = document.getElementById("stock-gida");
     const elTemizlik = document.getElementById("stock-temizlik");
-    const elKirtasiye = document.getElementById("stock-kirtasiye");
+    const elKırtasiye = document.getElementById("stock-kirtasiye");
     const elTekstil = document.getElementById("stock-tekstil");
     const logList = document.getElementById("log-list");
 
     // Stokları Ekrana Yazdır
     function updateStockDisplay(stockData) {
         elElektronik.innerText = stockData.elektronik || 0;
-        elGida.innerText = stockData.gida || 0;
+        elGıda.innerText = stockData.gida || 0;
         elTemizlik.innerText = stockData.temizlik || 0;
-        elKirtasiye.innerText = stockData.kirtasiye || 0;
+        elKırtasiye.innerText = stockData.kirtasiye || 0;
         elTekstil.innerText = stockData.tekstil || 0;
     }
 
@@ -25,8 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
         console.log("[POLL] updateLogs called with", logs.length, "entries. Most recent:", logs[0]?.timestamp);
         logList.innerHTML = ""; // Listeyi temizle
         
-        // En son 5 hareketi göster
-        const recentLogs = logs.slice(0, 5);
+        const recentLogs = logs; // Zaten backend filtreleyip gonderiyor
         
         recentLogs.forEach(log => {
             const li = document.createElement("li");
@@ -46,9 +60,14 @@ document.addEventListener("DOMContentLoaded", () => {
             const timeString = date.toLocaleTimeString('tr-TR');
             
             li.innerHTML = `
-                <span class="log-time" style="color: #888; font-size: 0.85rem; width: 70px; display: inline-block;">${timeString}</span>
-                <span style="color: ${directionColor}; font-weight: 700; width: 60px; display: inline-block;">${directionText}</span>
-                <span class="log-product" style="font-weight: 500; margin-left: 5px;">${productName}</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <div>
+                        <span class="log-time" style="color: #888; font-size: 0.85rem; width: 70px; display: inline-block;">${timeString}</span>
+                        <span style="color: ${directionColor}; font-weight: 700; width: 60px; display: inline-block;">${directionText}</span>
+                        <span class="log-product" style="font-weight: 500; margin-left: 5px;">${productName}</span>
+                    </div>
+                    ${true ? `<button onclick="undoMovement(${log.id})" style="background:#ff9800; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;">Geri Al</button>` : ''}
+                </div>
             `;
             
             logList.appendChild(li);
@@ -118,9 +137,19 @@ document.addEventListener("DOMContentLoaded", () => {
             const ctx = document.getElementById('inventoryChart');
             if (!ctx) return;
             
+                        const colorMap = {
+                'Elektronik': '#60a5fa',
+                'Gıda': '#f87171',
+                'Temizlik': '#4ade80',
+                'Kırtasiye': '#fbbf24',
+                'Tekstil': '#c084fc'
+            };
+            const dynamicColors = data.labels.map(label => colorMap[label] || '#999999');
+            
             if (chartInstance) {
                 chartInstance.data.labels = data.labels;
                 chartInstance.data.datasets[0].data = data.data;
+                chartInstance.data.datasets[0].backgroundColor = dynamicColors;
                 chartInstance.update();
             } else {
                 chartInstance = new Chart(ctx, {
@@ -129,7 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         labels: data.labels,
                         datasets: [{
                             data: data.data,
-                            backgroundColor: ['#60a5fa', '#fbbf24', '#c084fc', '#f87171'],
+                            backgroundColor: dynamicColors,
                             borderWidth: 0
                         }]
                     },
@@ -203,7 +232,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 2. Hareket geçmişi (Loglar) verisini çek
         try {
-            const logsRes = await fetch("http://localhost:8000/movements", { cache: "no-store" });
+            const filterVal = document.getElementById("log-time-filter") ? document.getElementById("log-time-filter").value : "5";
+            const logsRes = await fetch("http://localhost:8000/movements?filter=" + filterVal, { cache: "no-store" });
             const logsData = await logsRes.json();
             updateLogs(logsData);
         } catch (error) {
@@ -292,6 +322,20 @@ window.promptEditStock = async function(productName) {
     }
 };
 
+    
+    // ==========================================
+    // WEBSOCKET (CANLI YAYIN) BAĞLANTISI
+    // ==========================================
+    const ws = new WebSocket("ws://localhost:8000/ws");
+    ws.onmessage = (event) => {
+        if(event.data === "update") {
+            console.log("[WS] Sunucudan guncelleme tetigi geldi!");
+            fetchLiveStock();
+        }
+    };
+    ws.onopen = () => console.log("[WS] Baglanti kuruldu.");
+    ws.onclose = () => console.log("[WS] Baglanti koptu.");
+
     // Sayfa yüklendiğinde ilk veriyi çek
     fetchLiveStock();
 
@@ -314,6 +358,27 @@ window.promptEditStock = async function(productName) {
     // ==========================================
 
     const batchesList = document.getElementById("batches-list");
+
+    
+    window.promptEditBrand = async function(batchId, currentBrand) {
+        if (localStorage.getItem("userRole") === "worker") {
+            alert("Sadece yetkili markayi duzenleyebilir.");
+            return;
+        }
+        const newBrand = prompt("Lutfen yeni marka adini girin:", currentBrand === "-" ? "" : currentBrand);
+        if (newBrand !== null && newBrand.trim() !== "") {
+            try {
+                await fetch("http://localhost:8000/batches/" + batchId + "/brand", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ brand_name: newBrand.trim() })
+                });
+                fetchExpirations(); // reload table
+            } catch (e) {
+                console.error("Marka guncelleme hatasi:", e);
+            }
+        }
+    };
 
     window.promptEditSKT = async function(batchId, currentSKT) {
         if (localStorage.getItem("userRole") === "worker") {
@@ -372,7 +437,7 @@ window.promptEditStock = async function(productName) {
         batchesList.innerHTML = "";
         
         if (expirations.length === 0) {
-            batchesList.innerHTML = `<tr><td colspan="6" style="padding: 10px; text-align: center;">Depoda kayıtlı koli bulunmamaktadır.</td></tr>`;
+            batchesList.innerHTML = `<tr><td colspan="7" style="padding: 10px; text-align: center;">Depoda kayitli koli bulunmamaktadir.</td></tr>`;
             return;
         }
         
@@ -381,21 +446,29 @@ window.promptEditStock = async function(productName) {
             tr.style.borderBottom = "1px solid #eee";
             
             let statusText = "Güvenli";
-            let statusColor = "#4ade80"; // Pastel Yeşil
+            let statusColor = "#4ade80";
             if (exp.status === "expired") {
-                statusText = "Süresi Geçmiş!";
-                statusColor = "#f87171"; // Pastel Kırmızı
-            } else if (exp.status === "danger") {
-                statusText = "Kritik";
-                statusColor = "#f97316"; // Pastel Turuncu
+                statusText = "Süresi Geçmiş";
+                statusColor = "#ef4444";
+            } else if (exp.status === "critical") {
+                statusText = "Kritik (0 gün)";
+                statusColor = "#f97316";
             } else if (exp.status === "warning") {
                 statusText = "Yaklaşıyor";
-                statusColor = "#fbbf24"; // Pastel Sarı
+                statusColor = "#fbbf24";
             }
             
+            const brandText = exp.brand_name === "-" ? "<i style='opacity:0.5; font-size:12px;'>Belirtilmedi</i>" : exp.brand_name;
+            const brandHtml = localStorage.getItem("userRole") === "admin" 
+                ? `<span style="cursor: pointer; border-bottom: 1px dashed #ccc;" onclick="promptEditBrand(${exp.batch_id}, '${exp.brand_name}')">${brandText} ✏️</span>` 
+                : brandText;
+            
+            const productName = exp.product_name === "Gida" ? "Gıda" : exp.product_name === "Kirtasiye" ? "Kırtasiye" : exp.product_name;
+
             tr.innerHTML = `
                 <td style="padding: 10px;">#${exp.batch_id}</td>
-                <td style="padding: 10px; font-weight: bold;">${exp.product_name}</td>
+                <td style="padding: 10px; font-weight: bold;">${productName}</td>
+                <td style="padding: 10px;">${brandHtml}</td>
                 <td style="padding: 10px;">${exp.quantity} Adet</td>
                 <td style="padding: 10px;">${exp.expiration_date}</td>
                 <td style="padding: 10px; color: ${statusColor}; font-weight: bold;">${statusText} (${exp.days_left} gün)</td>
@@ -403,7 +476,7 @@ window.promptEditStock = async function(productName) {
                     ${localStorage.getItem("userRole") !== "worker" ? `
                     <button onclick="promptEditSKT(${exp.batch_id}, '${exp.expiration_date}')" style="background-color: #f59e0b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">📅 SKT Düzenle</button>
                     <button onclick="wasteBatch(${exp.batch_id})" style="background-color: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">İmha Et</button>
-                    <button onclick="generateQR(${exp.batch_id}, '${exp.product_name}', '${exp.expiration_date}')" style="background-color: #64748b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 3px;">
+                    <button onclick="generateQR(${exp.batch_id}, '${productName}', '${exp.expiration_date}')" style="background-color: #64748b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 3px;">
                         <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><rect x="7" y="7" width="3" height="3"></rect><rect x="14" y="7" width="3" height="3"></rect><rect x="7" y="14" width="3" height="3"></rect><rect x="14" y="14" width="3" height="3"></rect></svg>
                         Karekod
                     </button>
@@ -457,10 +530,10 @@ window.promptEditStock = async function(productName) {
                         <strong style="font-size: 16px;">${alert.product_name}</strong> stoğu kritik seviyede! 
                         <span style="color: #ef5350; font-weight: bold;">(Mevcut: ${alert.current_quantity} Kutu / Sınır: ${alert.critical_threshold})</span>
                     </div>
-                    <div style="background-color: rgba(25, 118, 210, 0.1); color: #42a5f5; padding: 8px 15px; border-radius: 4px; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 5px;">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                        Görevliye Onay Maili İletildi
-                    </div>
+                    <button onclick="placeOrder(${alert.product_id}, this)" style="background-color: #ef6c00; color: white; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.3s;" onmouseover="this.style.backgroundColor='#e65100'" onmouseout="this.style.backgroundColor='#ef6c00'">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                        Toptancıya Sipariş Geç
+                    </button>
                 `;
                 list.appendChild(item);
             });
@@ -473,3 +546,32 @@ window.promptEditStock = async function(productName) {
     // Not: window.placeOrder fonksiyonu silindi çünkü artık sistem 
     // görevlinin e-postasındaki link üzerinden arka ucu (GET /approve-order) tetikliyor.
 });
+
+window.undoMovement = async function(id) {
+    if(!confirm("Bu hareketi geri almak istediginize emin misiniz?")) return;
+    try {
+        const res = await window.fetchWithAuth("http://localhost:8000/movements/" + id + "/undo", {method: "POST"});
+        if (res.ok) { alert("Basariyla geri alindi!"); window.location.reload(); }
+        else { alert("Geri alma basarisiz!"); }
+    } catch(e) { alert("Hata: " + e); }
+};
+
+window.placeOrder = function(productId, btn) {
+    btn.innerHTML = "Sipariş Verildi ✔";
+    btn.style.backgroundColor = "#4ade80";
+    btn.style.color = "white";
+    btn.disabled = true;
+    orderedProductsThisSession.add(productId);
+    
+    // Backend uzerinden gercekten mail gonderimi tetiklenir
+    fetch("http://localhost:8000/order/" + productId, { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            console.log("Siparis basariyla toptanciya iletildi:", data);
+        })
+        .catch(err => console.error("Siparis hatasi:", err));
+        
+    setTimeout(() => {
+        checkLowStock(); // Automatically hide the alert after 2 seconds
+    }, 2000);
+};
