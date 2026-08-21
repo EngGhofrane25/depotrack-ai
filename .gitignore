@@ -1,16 +1,23 @@
 ECOMMERCE_PRODUCT_IMAGES/
-backend/venv/
-cv/venv/
+
+# Python virtual environments
+.venv/
 venv/
 __pycache__/
-stock.db
-*.mp4
+*.pyc
+
+# Databases
+*.db
+*.sqlite
+
+# Models and media
 *.pt
 *.onnx
+*.mp4
+
+# OS / editor
 .DS_Store
+
+# Node
 scratch/node_modules/
 node_modules/
-
-*.db
-*.mp4
-*.sqlite
