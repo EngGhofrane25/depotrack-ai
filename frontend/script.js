@@ -14,6 +14,10 @@ window.fetchWithAuth = async function(url, options = {}) {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+    const wholesaleEl = document.getElementById("wholesaleEmail");
+    if (wholesaleEl && localStorage.getItem("wholesaleEmail")) {
+        wholesaleEl.value = localStorage.getItem("wholesaleEmail");
+    }
     
     // ==========================================
     // GÜN 10: GERÇEK VERİTABANI BAĞLANTISI (FETCH)
@@ -574,4 +578,54 @@ window.placeOrder = function(productId, btn) {
     setTimeout(() => {
         checkLowStock(); // Automatically hide the alert after 2 seconds
     }, 2000);
+};
+
+
+window.saveMailSettings = function() {
+    const wholesaleEl = document.getElementById("wholesaleEmail");
+    if (wholesaleEl) {
+        localStorage.setItem("wholesaleEmail", wholesaleEl.value);
+        const status = document.getElementById("mailSettingsStatus");
+        if (status) {
+            status.style.display = "inline";
+            setTimeout(() => status.style.display = "none", 2000);
+        }
+    }
+};
+
+window.placeOrder = function(productId, btn) {
+    if (localStorage.getItem("userRole") === "worker") {
+        alert("Sadece yetkili siparis gecebilir.");
+        return;
+    }
+    
+    const wholesaleEmail = localStorage.getItem("wholesaleEmail");
+    if (!wholesaleEmail) {
+        alert("L\u00fctfen \u00f6nce yukaridaki E-Posta Ayarlarindan toptanci mailini kaydedin!");
+        return;
+    }
+
+    btn.innerHTML = "Sipari\u015f Ge\u00e7iliyor...";
+    btn.disabled = true;
+    
+    fetch("http://localhost:8000/order/" + productId + "?wholesale=" + encodeURIComponent(wholesaleEmail), { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                btn.innerHTML = "Sipari\u015f \u0130letildi \u2714\ufe0f";
+                btn.style.backgroundColor = "#4ade80";
+                btn.style.color = "white";
+                if(typeof orderedProductsThisSession !== 'undefined') {
+                    orderedProductsThisSession.add(productId);
+                }
+                
+                const mailtoLink = "mailto:" + wholesaleEmail + "?subject=" + encodeURIComponent(data.subject) + "&body=" + encodeURIComponent(data.body);
+                window.location.href = mailtoLink;
+                
+            } else {
+                btn.innerHTML = "Hata!";
+                btn.disabled = false;
+            }
+            setTimeout(() => { checkLowStock(); }, 2000);
+        });
 };

@@ -634,30 +634,20 @@ def undo_movement(movement_id: int, background_tasks: BackgroundTasks, db: Sessi
     return {"status": "success"}
 
 @app.post("/order/{product_id}")
-def place_order_to_supplier(product_id: int, db: Session = Depends(get_db)):
+def place_order_to_supplier(product_id: int, wholesale: str = "toptanci", db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
         
     subject = f"ACIL SIPARIS: {product.name.capitalize()} talebi"
-    content = f"""
-    <html>
-        <body>
-            <h2>Yeni Sipariş Talebi</h2>
-            <p>Sayın Toptancı,</p>
-            <p>Depomuzda <b>{product.name.capitalize()}</b> ürünü kritik stok seviyesine inmiştir.</p>
-            <p>Lütfen acil olarak <b>50 koli</b> {product.name.capitalize()} siparişi oluşturup depomuza sevk ediniz.</p>
-            <p>İyi çalışmalar.</p>
-        </body>
-    </html>
-    """
-    send_email("toptanci@tedarikci.com", subject, content)
-    
-    new_audit = models.AuditLog(user_role="admin", action="TOPTANCI SİPARİŞİ", detail=f"{product.name.capitalize()} için toptancıya otomatik sipariş maili gönderildi.")
+    body = f"Merhaba,\n\nDepomuzda \'{product.name.capitalize()}\' urunu kritik seviyeye ulastigi icin acil siparis talebimizdir.\n\nLutfen en kisa surede donus yapiniz.\n\nIyi calismalar."
+
+    # Siparis logu ekle
+    new_audit = models.AuditLog(user_role="admin", action="SIPARIS GECILDI", detail=f"{product.name.capitalize()} icin {wholesale} adresine siparis e-postasi hazirlandi.")
     db.add(new_audit)
     db.commit()
     
-    return {"status": "success", "message": "Order sent"}
+    return {"status": "success", "subject": subject, "body": body}
 
 from pydantic import BaseModel
 class BrandUpdate(BaseModel):

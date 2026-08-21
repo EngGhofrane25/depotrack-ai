@@ -139,7 +139,14 @@
                     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                     Kritik Stok Uyarıları (Toptancı Siparişi Bekliyor)
                 </h3>
-                <div id="low-stock-list" style="display: flex; gap: 10px; flex-wrap: wrap; flex-direction: column;">
+                
+                  <div id="mail-settings-panel" style="background: #fff3e0; padding: 10px; margin-bottom: 15px; border-radius: 5px; font-size: 13px; display: flex; align-items: center; gap: 10px;">
+                        <strong style="color: #ef6c00;">E-Posta Ayarlari:</strong>
+                        <input type="email" id="wholesaleEmail" placeholder="Toptanci Maili (Alici)" style="padding: 5px; border: 1px solid #ccc; border-radius: 3px; width: 250px;">
+                        <button onclick="saveMailSettings()" style="background: #f97316; color: white; border: none; padding: 6px 12px; border-radius: 3px; cursor: pointer; font-weight: bold;">Kaydet</button>
+                        <span id="mailSettingsStatus" style="color: #16a34a; font-weight: bold; display: none;">Kaydedildi!</span>
+                    </div>
+                  <div id="low-stock-list" style="display: flex; gap: 10px; flex-wrap: wrap; flex-direction: column;">
                     <!-- JavaScript ile eklenecek -->
                 </div>
             </div>

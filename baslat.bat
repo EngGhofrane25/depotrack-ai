@@ -19,11 +19,11 @@ echo AKILLI DEPO YONETIM SISTEMI BASLATILIYOR...
 echo ==================================================
 echo.
 echo [1/2] Sunucu ve Veritabani (Backend) calistiriliyor...
-start "Sunucu (Backend)" cmd /k "cd /d %PROJECT_DIR% && "%VENV_PYTHON%" -m uvicorn backend.main:app --port 8000"
+start "Sunucu (Backend)" cmd /k ""%VENV_PYTHON%" -m uvicorn backend.main:app --port 8000"
 timeout /t 3 >nul
 
 echo [2/2] Yapay Zeka Kamerasi (CV) calistiriliyor...
-start "Kamera (Yapay Zeka)" cmd /k "cd /d %PROJECT_DIR% && "%VENV_PYTHON%" cv/camera_feed.py"
+start "Kamera (Yapay Zeka)" cmd /k ""%VENV_PYTHON%" cv/camera_feed.py"
 
 echo.
 echo Baslatici gorevini tamamladi. 
