@@ -107,7 +107,7 @@ app.add_middleware(NoCacheMiddleware)
 # Varsayılan başlangıç verileri (Seed Data)
 INITIAL_PRODUCTS = [
     {"id": 1, "name": "elektronik", "items_per_box": 1, "critical_threshold": 5, "expiration_days": 1000},
-    {"id": 2, "name": "gida", "items_per_box": 1, "critical_threshold": 10, "expiration_days": 15},
+    {"id": 2, "name": "gida", "items_per_box": 1, "critical_threshold": 5, "expiration_days": 15},
     {"id": 3, "name": "tekstil", "items_per_box": 1, "critical_threshold": 5, "expiration_days": 500},
     {"id": 4, "name": "kirtasiye", "items_per_box": 1, "critical_threshold": 5, "expiration_days": 700},
     {"id": 5, "name": "temizlik", "items_per_box": 1, "critical_threshold": 5, "expiration_days": 365}
