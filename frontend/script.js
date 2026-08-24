@@ -4,7 +4,7 @@ window.fetchWithAuth = async function(url, options = {}) {
     const token = localStorage.getItem("adminToken");
     if (!options.headers) options.headers = {};
     if (token) options.headers["Authorization"] = "Bearer " + token;
-    
+
     const response = await fetch(url, options);
     if (response.status === 401) {
         document.getElementById("login-overlay").style.display = "flex";
@@ -21,11 +21,11 @@ window.supplierEmailCache = supplierEmailCache;
 window.pendingSupplierEdits = pendingSupplierEdits;
 
 document.addEventListener("DOMContentLoaded", () => {
-    
+
     // ==========================================
     // GÜN 10: GERÇEK VERİTABANI BAĞLANTISI (FETCH)
     // ==========================================
-    
+
     // DOM Elementlerini seçelim
     const elElektronik = document.getElementById("stock-elektronik");
     const elGıda = document.getElementById("stock-gida");
@@ -46,26 +46,26 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateLogs(logs) {
         console.log("[POLL] updateLogs called with", logs.length, "entries. Most recent:", logs[0]?.timestamp);
         logList.innerHTML = ""; // Listeyi temizle
-        
+
         const recentLogs = logs; // Zaten backend filtreleyip gonderiyor
-        
+
         recentLogs.forEach(log => {
             const li = document.createElement("li");
             li.className = "log-item";
-            
+
             // Yön bilgisine göre Türkçe metin ve CSS sınıfı
             const isEntry = log.direction === "IN";
             const directionText = isEntry ? "GİRDİ" : "ÇIKTI";
             const directionColor = isEntry ? "#4ade80" : "#f87171";
-            
+
             // Ürün ID'sini İsimle eşleştir
             const productNames = {1: "Elektronik", 2: "Gıda", 3: "Tekstil", 4: "Kırtasiye", 5: "Temizlik"};
             const productName = productNames[log.product_id] || "Bilinmeyen Ürün";
-            
+
             // Tarihi formatla
             const date = new Date(log.timestamp);
             const timeString = date.toLocaleTimeString('tr-TR');
-            
+
             li.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                     <div>
@@ -76,7 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     ${true ? `<button onclick="undoMovement(${log.id})" style="background:#ff9800; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;">Geri Al</button>` : ''}
                 </div>
             `;
-            
+
             logList.appendChild(li);
         });
     }
@@ -92,7 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.performLogin = async function() {
         const u = document.getElementById("username").value;
         const p = document.getElementById("password").value;
-        
+
         try {
             const res = await fetch("http://localhost:8000/login", {
                 method: "POST",
@@ -119,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (localStorage.getItem("theme") === "dark") {
         document.documentElement.setAttribute("data-theme", "dark");
     }
-    
+
     window.toggleTheme = function() {
         if (document.documentElement.getAttribute("data-theme") === "dark") {
             document.documentElement.removeAttribute("data-theme");
@@ -140,19 +140,19 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const res = await fetch("http://localhost:8000/analytics", { cache: "no-store" });
             const data = await res.json();
-            
+
             const ctx = document.getElementById('inventoryChart');
             if (!ctx) return;
-            
+
                         const colorMap = {
                 'Elektronik': '#60a5fa',
-                'Gıda': '#f87171',
+                'Gida': '#f87171',
                 'Temizlik': '#4ade80',
-                'Kırtasiye': '#fbbf24',
+                'Kirtasiye': '#fbbf24',
                 'Tekstil': '#c084fc'
             };
             const dynamicColors = data.labels.map(label => colorMap[label] || '#999999');
-            
+
             if (chartInstance) {
                 chartInstance.data.labels = data.labels;
                 chartInstance.data.datasets[0].data = data.data;
@@ -183,15 +183,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // --- 5. Karekod (QR Code) Modalı ---
     let qrCodeObj = null;
-    
+
     window.generateQR = function(batchId, productName, expDate) {
         document.getElementById('qrModal').style.display = 'flex';
         document.getElementById('qrModalTitle').innerText = `Koli #${batchId} Karekod`;
         document.getElementById('qrModalDesc').innerText = `Ürün: ${productName} | SKT: ${expDate}`;
-        
+
         const qrContainer = document.getElementById('qrcode');
         qrContainer.innerHTML = ''; // Temizle
-        
+
         qrCodeObj = new QRCode(qrContainer, {
             text: `DEPOTRACK-BATCHID:${batchId}|URUN:${productName}|SKT:${expDate}`,
             width: 150,
@@ -201,7 +201,7 @@ document.addEventListener("DOMContentLoaded", () => {
             correctLevel : QRCode.CorrectLevel.H
         });
     };
-    
+
     window.closeQRModal = function() {
         document.getElementById('qrModal').style.display = 'none';
     };
@@ -220,7 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const response = await fetch("http://localhost:8000/stock", { cache: "no-store" });
             const currentStock = await response.json();
-            
+
             // Sadece görsellik için log yazdırma
             if (previousStock) {
                 for (let key in currentStock) {
@@ -230,7 +230,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 }
             }
-            
+
             previousStock = JSON.parse(JSON.stringify(currentStock)); // Kopyasını al
             updateStockDisplay(currentStock);
         } catch (error) {
@@ -261,12 +261,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (typeof checkPalletStatus === "function") {
             checkPalletStatus();
         }
-        
+
         // 5. Kritik Stok Uyarılarını Çek
         if (typeof checkLowStock === "function") {
             checkLowStock();
         }
-        
+
         // 6. Analitik Grafiği Güncelle
         if (typeof updateChart === "function") {
             updateChart();
@@ -279,7 +279,7 @@ function applyRoleUI() {
     const reportSection = document.getElementById("report-section");
     const lowStockAlerts = document.getElementById("low-stock-alerts-container");
     const adminIcons = document.querySelectorAll(".admin-only");
-    
+
     if (role === "worker") {
         if (reportSection) reportSection.style.display = "none";
         adminIcons.forEach(icon => icon.style.display = "none");
@@ -303,7 +303,7 @@ window.promptEditStock = async function(productName) {
     }
     const currentVal = document.getElementById("stock-" + productName).innerText;
     const newVal = prompt(productName.toUpperCase() + " için yeni stok miktarını girin:", currentVal);
-    
+
     if (newVal !== null && newVal.trim() !== "" && !isNaN(newVal)) {
         let parsedVal = parseInt(newVal);
         if (parsedVal < 0) {
@@ -329,7 +329,7 @@ window.promptEditStock = async function(productName) {
     }
 };
 
-    
+
     // ==========================================
     // WEBSOCKET (CANLI YAYIN) BAĞLANTISI
     // ==========================================
@@ -366,7 +366,7 @@ window.promptEditStock = async function(productName) {
 
     const batchesList = document.getElementById("batches-list");
 
-    
+
     window.promptEditBrand = async function(batchId, currentBrand) {
         if (localStorage.getItem("userRole") === "worker") {
             alert("Sadece yetkili markayi duzenleyebilir.");
@@ -392,19 +392,19 @@ window.promptEditStock = async function(productName) {
             alert("Bu işlem için yetkiniz yok!");
             return;
         }
-        
+
         let sktParts = currentSKT.split(".");
         let defaultDate = sktParts.length === 3 ? `${sktParts[2]}-${sktParts[1]}-${sktParts[0]}` : "";
-        
+
         const newDate = prompt("Parti #" + batchId + " için yeni SKT girin (YYYY-AA-GG formatında):", defaultDate);
-        
+
         if (newDate !== null && newDate.trim() !== "") {
             // YYYY-MM-DD validasyonu
             if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
                 alert("Lütfen geçerli bir tarih formatı girin (Örn: 2024-12-31)");
                 return;
             }
-            
+
             try {
                 const dateObj = new Date(newDate);
                 const res = await fetchWithAuth("http://localhost:8000/batches/" + batchId, {
@@ -430,7 +430,7 @@ window.promptEditStock = async function(productName) {
             return;
         }
         if (!confirm("Bu partideki tüm koliler çöpe atılacak/imha edilecek. Onaylıyor musunuz?")) return;
-        
+
         try {
             await fetch(`http://localhost:8000/batches/${batchId}/waste`, { method: "POST" });
             fetchLiveStock(); // Tabloyu anında yenile
@@ -442,16 +442,16 @@ window.promptEditStock = async function(productName) {
     window.renderAllBatches = function(expirations) {
         if (!batchesList) return;
         batchesList.innerHTML = "";
-        
+
         if (expirations.length === 0) {
             batchesList.innerHTML = `<tr><td colspan="7" style="padding: 10px; text-align: center;">Depoda kayitli koli bulunmamaktadir.</td></tr>`;
             return;
         }
-        
+
         expirations.forEach(exp => {
             const tr = document.createElement("tr");
             tr.style.borderBottom = "1px solid #eee";
-            
+
             let statusText = "Güvenli";
             let statusColor = "#4ade80";
             if (exp.status === "expired") {
@@ -464,12 +464,12 @@ window.promptEditStock = async function(productName) {
                 statusText = "Yaklaşıyor";
                 statusColor = "#fbbf24";
             }
-            
+
             const brandText = exp.brand_name === "-" ? "<i style='opacity:0.5; font-size:12px;'>Belirtilmedi</i>" : exp.brand_name;
-            const brandHtml = localStorage.getItem("userRole") === "admin" 
-                ? `<span style="cursor: pointer; border-bottom: 1px dashed #ccc;" onclick="promptEditBrand(${exp.batch_id}, '${exp.brand_name}')">${brandText} ✏️</span>` 
+            const brandHtml = localStorage.getItem("userRole") === "admin"
+                ? `<span style="cursor: pointer; border-bottom: 1px dashed #ccc;" onclick="promptEditBrand(${exp.batch_id}, '${exp.brand_name}')">${brandText} ✏️</span>`
                 : brandText;
-            
+
             const productName = exp.product_name === "Gida" ? "Gıda" : exp.product_name === "Kirtasiye" ? "Kırtasiye" : exp.product_name;
 
             tr.innerHTML = `
@@ -497,10 +497,10 @@ window.promptEditStock = async function(productName) {
     // ==========================================
     // GÜN 16: KRİTİK STOK VE TOPTANCI SİPARİŞİ
     // ==========================================
-    
+
     // Oturum boyunca sipariş verilen ürünleri tutalım ki tekrar tekrar buton çıkmasın
     const orderedProductsThisSession = new Set();
-    
+
     // Satırları her saniye yeniden kurmamak için: veri değişmedikçe DOM'a dokunma.
     // Böylece kullanıcı e-posta yazarken input içeriği asla silinmez.
     let lastLowStockSignature = "";
@@ -508,25 +508,75 @@ window.promptEditStock = async function(productName) {
     // value="..." icin guvenli kacirma
     const escAttr = s => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+let audioCtx = null;
+function playBeep() {
+    try {
+        if (!audioCtx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) audioCtx = new AudioContext();
+        }
+        if (audioCtx) {
+            // Resume if suspended (browser auto-play policy)
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.type = 'triangle';
+            oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.5);
+        }
+    } catch(e) { console.log("Audio not supported or blocked"); }
+}
+
+const notifiedLowStockIds = new Set();
+
     window.checkLowStock = async function() {
         if (localStorage.getItem("userRole") === "worker") return; // Görevli uyarı görmez
         const container = document.getElementById("low-stock-alerts-container");
         const list = document.getElementById("low-stock-list");
         if (!container || !list) return;
-        
+
         try {
             const res = await fetch("http://localhost:8000/alerts/low-stock", { cache: "no-store" });
             const alerts = await res.json();
-            
+
             // Eğer daha önce sipariş verdiğimiz ürünler varsa listeden gizleyelim
             const activeAlerts = alerts.filter(a => !orderedProductsThisSession.has(a.product_id));
-            
+
+            let hasNewAlert = false;
+            activeAlerts.forEach(a => {
+                if (!notifiedLowStockIds.has(a.product_id)) {
+                    hasNewAlert = true;
+                    notifiedLowStockIds.add(a.product_id);
+                }
+            });
+
+            // Eger listede olmayan ama onceden bildirilmis varsa (stoğu artmissa) listeden cikar
+            notifiedLowStockIds.forEach(id => {
+                if (!activeAlerts.find(a => a.product_id === id)) {
+                    notifiedLowStockIds.delete(id);
+                }
+            });
+
+            if (hasNewAlert) {
+                playBeep();
+            }
+
             if (activeAlerts.length === 0) {
                 container.style.display = "none";
                 lastLowStockSignature = "";
                 return;
             }
-            
+
             // Ürünlerin kaydedilmiş toptancı e-postalarını çek (sadece eksikse)
             if (activeAlerts.some(a => !(a.product_id in supplierEmailCache))) {
                 const pRes = await fetch("http://localhost:8000/products", { cache: "no-store" });
@@ -534,28 +584,28 @@ window.promptEditStock = async function(productName) {
                     (await pRes.json()).forEach(p => { supplierEmailCache[p.id] = p.supplier_email || ""; });
                 }
             }
-            
+
             container.style.display = "block";
-            
+
             // Veri aynıysa listeyi yeniden kurmadan çık (input koruma)
             const signature = activeAlerts
                 .map(a => `${a.product_id}:${a.current_quantity}:${a.critical_threshold}:${supplierEmailCache[a.product_id] ?? ""}`)
                 .join("|");
             if (signature === lastLowStockSignature) return;
             lastLowStockSignature = signature;
-            
+
             // Yeniden kurmadan önce kullanıcının henüz kaydetmediği girdileri sakla
             list.querySelectorAll("input[data-supplier-input]").forEach(inp => {
                 pendingSupplierEdits[inp.dataset.productId] = inp.value;
             });
-            
+
             list.innerHTML = "";
-            
+
             activeAlerts.forEach(alert => {
                 const pid = alert.product_id;
                 const savedEmail = supplierEmailCache[pid];
                 const emailValue = (pid in pendingSupplierEdits) ? pendingSupplierEdits[pid] : (savedEmail ?? "");
-                
+
                 const item = document.createElement("div");
                 item.dataset.productId = pid;
                 item.style.backgroundColor = "var(--bg-color)";
@@ -567,10 +617,10 @@ window.promptEditStock = async function(productName) {
                 item.style.alignItems = "center";
                 item.style.gap = "10px";
                 item.style.flexWrap = "wrap";
-                
+
                 item.innerHTML = `
                     <div style="flex: 1 1 220px; min-width: 200px;">
-                        <strong style="font-size: 16px;">${alert.product_name}</strong> stoğu kritik seviyede! 
+                        <strong style="font-size: 16px;">${alert.product_name}</strong> stoğu kritik seviyede!
                         <span style="color: #ef5350; font-weight: bold;">(Mevcut: ${alert.current_quantity} Kutu / Sınır: ${alert.critical_threshold})</span>
                         ${savedEmail ? '' : '<span class="supplier-missing-warning" style="display:block; font-size:12px; color:#ef6c00; margin-top:2px;">Bu ürün için toptancı e-postası tanımlı değil.</span>'}
                     </div>
@@ -589,12 +639,12 @@ window.promptEditStock = async function(productName) {
                 `;
                 list.appendChild(item);
             });
-            
+
         } catch (e) {
             console.error("Kritik stok verisi çekilemedi:", e);
         }
     };
-    
+
     // Seçili ürünün toptancı e-postasını JWT ile backend'e kaydeder (sayfa yenilenmez)
     window.saveSupplierEmail = async function(productId, btn) {
         const item = btn.closest("[data-product-id]");
@@ -658,7 +708,7 @@ window.promptEditStock = async function(productName) {
             btn.textContent = originalText;
         }
     };
-    
+
 });
 
 window.undoMovement = async function(id) {
