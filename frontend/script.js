@@ -143,9 +143,9 @@ document.addEventListener("DOMContentLoaded", () => {
             
                         const colorMap = {
                 'Elektronik': '#60a5fa',
-                'Gıda': '#f87171',
+                'Gida': '#f87171',
                 'Temizlik': '#4ade80',
-                'Kırtasiye': '#fbbf24',
+                'Kirtasiye': '#fbbf24',
                 'Tekstil': '#c084fc'
             };
             const dynamicColors = data.labels.map(label => colorMap[label] || '#999999');
