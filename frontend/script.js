@@ -498,6 +498,38 @@ window.promptEditStock = async function(productName) {
     // Oturum boyunca sipariş verilen ürünleri tutalım ki tekrar tekrar buton çıkmasın
     const orderedProductsThisSession = new Set();
     
+    
+let audioCtx = null;
+function playBeep() {
+    try {
+        if (!audioCtx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) audioCtx = new AudioContext();
+        }
+        if (audioCtx) {
+            // Resume if suspended (browser auto-play policy)
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.type = 'triangle'; 
+            oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+            
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.5);
+        }
+    } catch(e) { console.log("Audio not supported or blocked"); }
+}
+
+const notifiedLowStockIds = new Set();
+
     window.checkLowStock = async function() {
         if (localStorage.getItem("userRole") === "worker") return; // Görevli uyarı görmez
         const container = document.getElementById("low-stock-alerts-container");
@@ -510,6 +542,25 @@ window.promptEditStock = async function(productName) {
             
             // Eğer daha önce sipariş verdiğimiz ürünler varsa listeden gizleyelim
             const activeAlerts = alerts.filter(a => !orderedProductsThisSession.has(a.product_id));
+            
+            let hasNewAlert = false;
+            activeAlerts.forEach(a => {
+                if (!notifiedLowStockIds.has(a.product_id)) {
+                    hasNewAlert = true;
+                    notifiedLowStockIds.add(a.product_id);
+                }
+            });
+            
+            // Eger listede olmayan ama onceden bildirilmis varsa (stoğu artmissa) listeden cikar
+            notifiedLowStockIds.forEach(id => {
+                if (!activeAlerts.find(a => a.product_id === id)) {
+                    notifiedLowStockIds.delete(id);
+                }
+            });
+            
+            if (hasNewAlert) {
+                playBeep();
+            }
             
             if (activeAlerts.length === 0) {
                 container.style.display = "none";
