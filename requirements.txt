@@ -14,6 +14,12 @@ pydantic>=2.9,<3
 python-multipart>=0.0.18
 python-jose[cryptography]>=3.3,<4
 
+# E-posta (Gmail API + OAuth 2.0)
+google-api-python-client>=2.100,<3
+google-auth-oauthlib>=1.1,<2
+google-auth-httplib2>=0.2,<0.3
+python-dotenv>=1.0,<2
+
 # CV / Camera
 opencv-python>=4.10,<6
 numpy>=1.26,<3

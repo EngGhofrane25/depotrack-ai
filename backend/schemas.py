@@ -7,6 +7,7 @@ class ProductCreate(BaseModel):
     items_per_box: int
     critical_threshold: int
     supplier_info: str = ""
+    supplier_email: str = ""
 
 
 class ProductOut(ProductCreate):

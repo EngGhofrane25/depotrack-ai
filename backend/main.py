@@ -13,18 +13,33 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 import csv
+import os
 from datetime import datetime, timedelta
-import smtplib
-from email.mime.text import MIMEText
 
 # Import local SQLite models and database
 from .database import engine, Base, get_db
 from . import models, schemas
+from . import email_service
 
 # Tabloları oluştur
 Base.metadata.create_all(bind=engine)
+
+
+def _ensure_product_supplier_email_column():
+    """Eski veritabanlarina supplier_email kolonunu ekler (create_all ALTER yapmaz)."""
+    insp = inspect(engine)
+    if "products" in insp.get_table_names():
+        columns = [c["name"] for c in insp.get_columns("products")]
+        if "supplier_email" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE products ADD COLUMN supplier_email VARCHAR DEFAULT ''"))
+            print("[INFO] 'products' tablosuna supplier_email kolonu eklendi.")
+
+
+_ensure_product_supplier_email_column()
 
 
 # ==========================================
@@ -74,15 +89,26 @@ def create_access_token(data: dict):
     to_encode = data.copy()
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def _decode_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Yetkisiz erişim")
-        return username
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
         raise HTTPException(status_code=401, detail="Yetkisiz erişim - Token Geçersiz")
+
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    username: str = _decode_access_token(token).get("sub")
+    if username is None:
+        raise HTTPException(status_code=401, detail="Yetkisiz erişim")
+    return username
+
+def get_admin_user(token: str = Depends(oauth2_scheme)):
+    payload = _decode_access_token(token)
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Bu işlem için yönetici (admin) yetkisi gereklidir")
+    username = payload.get("sub")
+    if username is None:
+        raise HTTPException(status_code=401, detail="Yetkisiz erişim")
+    return username
 
 
 
@@ -265,7 +291,23 @@ def add_event(event: EventPayload, background_tasks: BackgroundTasks, db: Sessio
 @app.get("/products")
 def get_products(db: Session = Depends(get_db)):
     products = db.query(models.Product).all()
-    return [{"id": p.id, "name": p.name} for p in products]
+    return [{"id": p.id, "name": p.name, "supplier_email": p.supplier_email or ""} for p in products]
+
+
+class SupplierEmailPayload(BaseModel):
+    supplier_email: str = ""
+
+@app.put("/products/{product_id}/supplier")
+def set_supplier_email(product_id: int, payload: SupplierEmailPayload, db: Session = Depends(get_db), user: str = Depends(get_admin_user)):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Ürün bulunamadı")
+
+    product.supplier_email = payload.supplier_email.strip()
+    new_audit = models.AuditLog(user_role=user, action="TOPTANCI GUNCELLEMESI", detail=f"'{product.name}' icin toptanci e-postasi '{product.supplier_email}' olarak ayarlandi.")
+    db.add(new_audit)
+    db.commit()
+    return {"status": "success", "product_id": product.id, "supplier_email": product.supplier_email}
 
 @app.post("/products")
 def add_product(payload: ProductPayload, db: Session = Depends(get_db)):
@@ -287,7 +329,7 @@ def add_product(payload: ProductPayload, db: Session = Depends(get_db)):
     return {"status": "success", "product_id": new_product.id}
 
 @app.post("/stock/in")
-def stock_in(payload: ManualStockPayload, db: Session = Depends(get_db)):
+def stock_in(payload: ManualStockPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     stock = db.query(models.Stock).filter(models.Stock.product_id == payload.product_id).first()
     product = db.query(models.Product).filter(models.Product.id == payload.product_id).first()
     if stock and product:
@@ -484,38 +526,11 @@ def waste_batch(batch_id: int, background_tasks: BackgroundTasks, db: Session = 
 # B2B E-POSTA / SİPARİŞ ENDPOINT'LERİ (2 AŞAMALI ONAY)
 # ==========================================
 
-# Çevresel değişkenlerden (Environment Variables) güvenli okuma
-import os
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SENDER_EMAIL = os.getenv("SENDER_EMAIL", "simulasyon@local")
-SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "")
-
 WORKER_EMAIL = os.getenv("WORKER_EMAIL", "admin@sirket.com")
 WHOLESALER_EMAIL = os.getenv("WHOLESALER_EMAIL", "toptanci@sirket.com")
 
 # Spam engellemek için hangi ürün için ne zaman onay maili atıldığını takip ediyoruz
 last_approval_email_sent = {} # { product_id: datetime }
-
-def send_email_helper(to_email, subject, content):
-    if SENDER_EMAIL == "simulasyon@local" or not SENDER_PASSWORD:
-        print(f"[MAIL SIMULASYONU] Kime: {to_email} | Konu: {subject}")
-        return True
-        
-    try:
-        msg = MIMEText(content, 'html')
-        msg["Subject"] = subject
-        msg["From"] = SENDER_EMAIL
-        msg["To"] = to_email
-        
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.send_message(msg)
-        return True
-    except Exception as e:
-        print(f"[MAIL HATASI] E-posta gönderilemedi: {e}")
-        return False
 
 def check_and_send_approval_email(product_id, product_name, current_qty, threshold):
     global last_approval_email_sent
@@ -545,8 +560,11 @@ def check_and_send_approval_email(product_id, product_name, current_qty, thresho
     </html>
     """
     
-    send_email_helper(WORKER_EMAIL, subject, content)
-    print(f"[BİLGİ] {product_name} için Görevliye Onay Maili Gönderildi.")
+    success = email_service.send_email(WORKER_EMAIL, subject, content)
+    if success:
+        print(f"[BİLGİ] {product_name} için Görevliye Onay Maili Gönderildi.")
+    else:
+        print(f"[HATA] {product_name} için Görevliye Onay Maili Gönderilemedi.")
 
 @app.get("/alerts/low-stock")
 def get_low_stock_alerts(db: Session = Depends(get_db)):
@@ -576,6 +594,9 @@ def approve_order(product_id: int, db: Session = Depends(get_db)):
     stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
     qty = stock.warehouse_quantity if stock else 0
     
+    # Alici onceligi: urune tanimli toptanci e-postasi > ortam degiskeni (WHOLESALER_EMAIL)
+    recipient = (product.supplier_email or "").strip() or WHOLESALER_EMAIL
+
     # 2. AŞAMA: Toptancıya Giden Gerçek Sipariş Maili
     subject = f"ACİL SİPARİŞ: {product.name.capitalize()} (Otomatik Sistem Mesajı)"
     content = f"""
@@ -589,7 +610,7 @@ def approve_order(product_id: int, db: Session = Depends(get_db)):
     </html>
     """
     
-    success = send_email_helper(WHOLESALER_EMAIL, subject, content)
+    success = email_service.send_email(recipient, subject, content)
     
     if success:
         return f"""
@@ -597,7 +618,7 @@ def approve_order(product_id: int, db: Session = Depends(get_db)):
             <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
                 <div style="max-width: 500px; margin: 0 auto; background-color: #e8f5e9; padding: 30px; border-radius: 10px; border: 1px solid #4caf50;">
                     <h1 style="color: #2e7d32;">✅ SİPARİŞ ONAYLANDI!</h1>
-                    <p style="font-size: 18px;"><b>{product.name.capitalize()}</b> için toptancıya ({WHOLESALER_EMAIL}) resmi sipariş e-postası başarıyla iletildi.</p>
+                    <p style="font-size: 18px;"><b>{product.name.capitalize()}</b> için toptancıya ({recipient}) resmi sipariş e-postası başarıyla iletildi.</p>
                     <p style="color: #666;">Bu pencereyi kapatabilirsiniz.</p>
                 </div>
             </body>
@@ -634,20 +655,46 @@ def undo_movement(movement_id: int, background_tasks: BackgroundTasks, db: Sessi
     return {"status": "success"}
 
 @app.post("/order/{product_id}")
-def place_order_to_supplier(product_id: int, wholesale: str = "toptanci", db: Session = Depends(get_db)):
+def place_order_to_supplier(product_id: int, wholesale: str = None, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-        
-    subject = f"ACIL SIPARIS: {product.name.capitalize()} talebi"
-    body = f"Merhaba,\n\nDepomuzda \'{product.name.capitalize()}\' urunu kritik seviyeye ulastigi icin acil siparis talebimizdir.\n\nLutfen en kisa surede donus yapiniz.\n\nIyi calismalar."
 
-    # Siparis logu ekle
-    new_audit = models.AuditLog(user_role="admin", action="SIPARIS GECILDI", detail=f"{product.name.capitalize()} icin {wholesale} adresine siparis e-postasi hazirlandi.")
+    stock = db.query(models.Stock).filter(models.Stock.product_id == product.id).first()
+    qty = stock.warehouse_quantity if stock else 0
+
+    # Alici onceligi: istekten gelen adres > urune tanimli toptanci > ortam degiskeni
+    recipient = (wholesale or "").strip() or (product.supplier_email or "").strip() or WHOLESALER_EMAIL
+
+    subject = f"ACIL SIPARIS: {product.name.capitalize()} talebi"
+    content = f"""
+    <html>
+        <body>
+            <p>Sayın Tedarikçi,</p>
+            <p>Depomuzda <strong>{product.name.capitalize()}</strong> ürünü stokları kritik seviyeye (Mevcut: {qty}) düşmüştür.</p>
+            <p>Lütfen en kısa sürede adresimize <strong>50 koli</strong> gönderim sağlayınız.</p>
+            <br><p>İyi çalışmalar,<br>Akıllı Depo Sistemi</p>
+        </body>
+    </html>
+    """
+
+    sent = email_service.send_email(recipient, subject, content)
+    mode = email_service.get_active_provider()
+
+    new_audit = models.AuditLog(
+        user_role="admin",
+        action="SIPARIS GECILDI",
+        detail=f"{product.name.capitalize()} icin {recipient} adresine siparis e-postasi {'gonderildi' if sent else 'GONDERILEMEDI'} ({mode})."
+    )
     db.add(new_audit)
     db.commit()
-    
-    return {"status": "success", "subject": subject, "body": body}
+
+    if not sent:
+        return {"status": "error", "sent": False, "mode": mode, "recipient": recipient,
+                "message": "E-posta gonderilemedi. Sunucu loglarini kontrol edin."}
+
+    return {"status": "success", "sent": True, "mode": mode, "recipient": recipient,
+            "subject": subject}
 
 from pydantic import BaseModel
 class BrandUpdate(BaseModel):

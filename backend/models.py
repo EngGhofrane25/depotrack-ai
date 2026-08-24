@@ -11,6 +11,7 @@ class Product(Base):
     items_per_box = Column(Integer, nullable=False)
     critical_threshold = Column(Integer, nullable=False)
     supplier_info = Column(String, default="")
+    supplier_email = Column(String, default="")  # Toptancinin otomatik siparis e-posta adresi
     expiration_days = Column(Integer, default=30, nullable=False) # Yeni eklendi: FEFO için ömür
 
 

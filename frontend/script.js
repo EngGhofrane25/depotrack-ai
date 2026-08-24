@@ -13,11 +13,14 @@ window.fetchWithAuth = async function(url, options = {}) {
     return response;
 };
 
+// Ürün bazlı toptancı e-postası için önbellekler
+// supplierEmailCache: backend'deki kayıtlı değerler | pendingSupplierEdits: kullanıcı henüz kaydetmedi
+var supplierEmailCache = {};
+var pendingSupplierEdits = {};
+window.supplierEmailCache = supplierEmailCache;
+window.pendingSupplierEdits = pendingSupplierEdits;
+
 document.addEventListener("DOMContentLoaded", () => {
-    const wholesaleEl = document.getElementById("wholesaleEmail");
-    if (wholesaleEl && localStorage.getItem("wholesaleEmail")) {
-        wholesaleEl.value = localStorage.getItem("wholesaleEmail");
-    }
     
     // ==========================================
     // GÜN 10: GERÇEK VERİTABANI BAĞLANTISI (FETCH)
@@ -498,6 +501,13 @@ window.promptEditStock = async function(productName) {
     // Oturum boyunca sipariş verilen ürünleri tutalım ki tekrar tekrar buton çıkmasın
     const orderedProductsThisSession = new Set();
     
+    // Satırları her saniye yeniden kurmamak için: veri değişmedikçe DOM'a dokunma.
+    // Böylece kullanıcı e-posta yazarken input içeriği asla silinmez.
+    let lastLowStockSignature = "";
+
+    // value="..." icin guvenli kacirma
+    const escAttr = s => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
     window.checkLowStock = async function() {
         if (localStorage.getItem("userRole") === "worker") return; // Görevli uyarı görmez
         const container = document.getElementById("low-stock-alerts-container");
@@ -513,14 +523,41 @@ window.promptEditStock = async function(productName) {
             
             if (activeAlerts.length === 0) {
                 container.style.display = "none";
+                lastLowStockSignature = "";
                 return;
             }
             
+            // Ürünlerin kaydedilmiş toptancı e-postalarını çek (sadece eksikse)
+            if (activeAlerts.some(a => !(a.product_id in supplierEmailCache))) {
+                const pRes = await fetch("http://localhost:8000/products", { cache: "no-store" });
+                if (pRes.ok) {
+                    (await pRes.json()).forEach(p => { supplierEmailCache[p.id] = p.supplier_email || ""; });
+                }
+            }
+            
             container.style.display = "block";
+            
+            // Veri aynıysa listeyi yeniden kurmadan çık (input koruma)
+            const signature = activeAlerts
+                .map(a => `${a.product_id}:${a.current_quantity}:${a.critical_threshold}:${supplierEmailCache[a.product_id] ?? ""}`)
+                .join("|");
+            if (signature === lastLowStockSignature) return;
+            lastLowStockSignature = signature;
+            
+            // Yeniden kurmadan önce kullanıcının henüz kaydetmediği girdileri sakla
+            list.querySelectorAll("input[data-supplier-input]").forEach(inp => {
+                pendingSupplierEdits[inp.dataset.productId] = inp.value;
+            });
+            
             list.innerHTML = "";
             
             activeAlerts.forEach(alert => {
+                const pid = alert.product_id;
+                const savedEmail = supplierEmailCache[pid];
+                const emailValue = (pid in pendingSupplierEdits) ? pendingSupplierEdits[pid] : (savedEmail ?? "");
+                
                 const item = document.createElement("div");
+                item.dataset.productId = pid;
                 item.style.backgroundColor = "var(--bg-color)";
                 item.style.border = "1px solid var(--border-color)";
                 item.style.padding = "10px 15px";
@@ -528,16 +565,27 @@ window.promptEditStock = async function(productName) {
                 item.style.display = "flex";
                 item.style.justifyContent = "space-between";
                 item.style.alignItems = "center";
+                item.style.gap = "10px";
+                item.style.flexWrap = "wrap";
                 
                 item.innerHTML = `
-                    <div>
+                    <div style="flex: 1 1 220px; min-width: 200px;">
                         <strong style="font-size: 16px;">${alert.product_name}</strong> stoğu kritik seviyede! 
                         <span style="color: #ef5350; font-weight: bold;">(Mevcut: ${alert.current_quantity} Kutu / Sınır: ${alert.critical_threshold})</span>
+                        ${savedEmail ? '' : '<span class="supplier-missing-warning" style="display:block; font-size:12px; color:#ef6c00; margin-top:2px;">Bu ürün için toptancı e-postası tanımlı değil.</span>'}
                     </div>
-                    <button onclick="placeOrder(${alert.product_id}, this)" style="background-color: #ef6c00; color: white; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.3s;" onmouseover="this.style.backgroundColor='#e65100'" onmouseout="this.style.backgroundColor='#ef6c00'">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                        Toptancıya Sipariş Geç
-                    </button>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <input type="email" data-supplier-input data-product-id="${pid}" placeholder="Toptancı e-postası girin..."
+                               value="${escAttr(emailValue)}" title="Bu ürünün toptancı e-posta adresi"
+                               style="padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; width: 210px; max-width: 100%; font-size: 13px;">
+                        <button onclick="saveSupplierEmail(${pid}, this)" title="Bu ürünün toptancı e-postasını kaydet"
+                                style="background-color: #f97316; color: white; border: none; padding: 7px 12px; border-radius: 4px; font-weight: bold; font-size: 13px; cursor: pointer;">Kaydet</button>
+                        <span class="supplier-save-status" style="font-size: 12px; font-weight: bold; display: none;"></span>
+                        <button onclick="placeOrder(${pid}, this)" style="background-color: #ef6c00; color: white; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.3s;" onmouseover="this.style.backgroundColor='#e65100'" onmouseout="this.style.backgroundColor='#ef6c00'">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                            Toptancıya Sipariş Geç
+                        </button>
+                    </div>
                 `;
                 list.appendChild(item);
             });
@@ -547,8 +595,70 @@ window.promptEditStock = async function(productName) {
         }
     };
     
-    // Not: window.placeOrder fonksiyonu silindi çünkü artık sistem 
-    // görevlinin e-postasındaki link üzerinden arka ucu (GET /approve-order) tetikliyor.
+    // Seçili ürünün toptancı e-postasını JWT ile backend'e kaydeder (sayfa yenilenmez)
+    window.saveSupplierEmail = async function(productId, btn) {
+        const item = btn.closest("[data-product-id]");
+        const input = item ? item.querySelector("input[data-supplier-input]") : null;
+        const statusEl = item ? item.querySelector(".supplier-save-status") : null;
+
+        const showStatus = (text, color) => {
+            if (!statusEl) return;
+            statusEl.textContent = text;
+            statusEl.style.color = color;
+            statusEl.style.display = "inline";
+            clearTimeout(statusEl._hideTimer);
+            statusEl._hideTimer = setTimeout(() => { statusEl.style.display = "none"; }, 3000);
+        };
+
+        if (!input) {
+            showStatus("Hata!", "#dc2626");
+            return;
+        }
+
+        const emailVal = input.value.trim();
+        if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+            showStatus("Geçersiz e-posta!", "#dc2626");
+            return;
+        }
+
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Kaydediliyor...";
+        try {
+            const res = await window.fetchWithAuth(`http://localhost:8000/products/${productId}/supplier`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ supplier_email: emailVal })
+            });
+
+            if (res.status === 401) return; // fetchWithAuth zaten giriş ekranını açtı
+
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.status === "success") {
+                const savedVal = data.supplier_email || "";
+                supplierEmailCache[productId] = savedVal;
+                delete pendingSupplierEdits[productId];
+
+                // Aninda UI senkronu: kaydedilen degeri goster, uyarıyı guncelle
+                // (1 sn'lik periyodik refresh'i beklemeden)
+                input.value = savedVal;
+                const warnEl = item ? item.querySelector(".supplier-missing-warning") : null;
+                if (warnEl) warnEl.style.display = savedVal ? "none" : "";
+                lastLowStockSignature = ""; // sonraki dongude satir tam tazelensin
+
+                showStatus("Kaydedildi ✓", "#16a34a");
+            } else {
+                showStatus(data.detail ? String(data.detail) : "Kaydedilemedi!", "#dc2626");
+            }
+        } catch (e) {
+            console.error("Toptancı e-postası kaydedilemedi:", e);
+            showStatus("Bağlantı hatası!", "#dc2626");
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    };
+    
 });
 
 window.undoMovement = async function(id) {
@@ -561,71 +671,41 @@ window.undoMovement = async function(id) {
 };
 
 window.placeOrder = function(productId, btn) {
-    btn.innerHTML = "Sipariş Verildi ✔";
-    btn.style.backgroundColor = "#4ade80";
-    btn.style.color = "white";
-    btn.disabled = true;
-    orderedProductsThisSession.add(productId);
-    
-    // Backend uzerinden gercekten mail gonderimi tetiklenir
-    fetch("http://localhost:8000/order/" + productId, { method: "POST" })
-        .then(res => res.json())
-        .then(data => {
-            console.log("Siparis basariyla toptanciya iletildi:", data);
-        })
-        .catch(err => console.error("Siparis hatasi:", err));
-        
-    setTimeout(() => {
-        checkLowStock(); // Automatically hide the alert after 2 seconds
-    }, 2000);
-};
-
-
-window.saveMailSettings = function() {
-    const wholesaleEl = document.getElementById("wholesaleEmail");
-    if (wholesaleEl) {
-        localStorage.setItem("wholesaleEmail", wholesaleEl.value);
-        const status = document.getElementById("mailSettingsStatus");
-        if (status) {
-            status.style.display = "inline";
-            setTimeout(() => status.style.display = "none", 2000);
-        }
-    }
-};
-
-window.placeOrder = function(productId, btn) {
     if (localStorage.getItem("userRole") === "worker") {
         alert("Sadece yetkili siparis gecebilir.");
         return;
     }
-    
-    const wholesaleEmail = localStorage.getItem("wholesaleEmail");
-    if (!wholesaleEmail) {
-        alert("L\u00fctfen \u00f6nce yukaridaki E-Posta Ayarlarindan toptanci mailini kaydedin!");
-        return;
-    }
 
+    // Aliciyi sunucu secer: urune tanimli supplier_email > varsayilan toptanci.
+    // Ayrica kullanici global e-posta girmek zorunda degil; per-urun Kaydet yeterli.
     btn.innerHTML = "Sipari\u015f Ge\u00e7iliyor...";
     btn.disabled = true;
-    
-    fetch("http://localhost:8000/order/" + productId + "?wholesale=" + encodeURIComponent(wholesaleEmail), { method: "POST" })
+
+    fetch("http://localhost:8000/order/" + productId, { method: "POST" })
         .then(res => res.json())
         .then(data => {
-            if (data.status === "success") {
-                btn.innerHTML = "Sipari\u015f \u0130letildi \u2714\ufe0f";
-                btn.style.backgroundColor = "#4ade80";
-                btn.style.color = "white";
-                if(typeof orderedProductsThisSession !== 'undefined') {
+            if (data.status === "success" && data.sent) {
+                if (data.mode === "simulasyon") {
+                    btn.innerHTML = "Sim\u00fclasyon \u2714\ufe0f";
+                } else {
+                    btn.innerHTML = "Sipari\u015f \u0130letildi \u2714\ufe0f";
+                    btn.style.backgroundColor = "#4ade80";
+                    btn.style.color = "white";
+                }
+                if (typeof orderedProductsThisSession !== 'undefined') {
                     orderedProductsThisSession.add(productId);
                 }
-                
-                const mailtoLink = "mailto:" + wholesaleEmail + "?subject=" + encodeURIComponent(data.subject) + "&body=" + encodeURIComponent(data.body);
-                window.location.href = mailtoLink;
-                
             } else {
                 btn.innerHTML = "Hata!";
-                btn.disabled = false;
+                btn.style.backgroundColor = "#ef4444";
+                btn.style.color = "white";
+                console.error("Siparis e-postasi gonderilemedi:", data);
             }
             setTimeout(() => { checkLowStock(); }, 2000);
+        })
+        .catch(err => {
+            console.error("Siparis hatasi:", err);
+            btn.innerHTML = "Hata!";
+            btn.disabled = false;
         });
 };

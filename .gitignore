@@ -18,6 +18,13 @@ __pycache__/
 # OS / editor
 .DS_Store
 
+# Secrets / Google OAuth kimlik bilgileri (ASLA commit etmeyin)
+.env
+credentials.json
+client_secret*.json
+token.json
+*.pem
+
 # Node
 scratch/node_modules/
 node_modules/
