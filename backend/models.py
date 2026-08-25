@@ -50,6 +50,7 @@ class Batch(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     quantity = Column(Integer, nullable=False, default=0)
     expiration_date = Column(DateTime, nullable=False)
+    brand_name = Column(String, default="-")
     created_at = Column(DateTime, server_default=func.now())
 
 class AuditLog(Base):

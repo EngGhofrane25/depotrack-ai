@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 # PostgreSQL örnek formatı:
 # DATABASE_URL = "postgresql://kullanici:sifre@localhost:5432/depo_db"
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./stock.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip() or "sqlite:///./stock.db"
 
 # Eğer SQLite kullanılıyorsa thread ayarı gerekir, PostgreSQL vb. için gerekmez.
 if DATABASE_URL.startswith("sqlite"):

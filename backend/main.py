@@ -39,7 +39,19 @@ def _ensure_product_supplier_email_column():
             print("[INFO] 'products' tablosuna supplier_email kolonu eklendi.")
 
 
+def _ensure_batch_brand_name_column():
+    """Eski veritabanlarina batches.brand_name kolonunu ekler."""
+    insp = inspect(engine)
+    if "batches" in insp.get_table_names():
+        columns = [c["name"] for c in insp.get_columns("batches")]
+        if "brand_name" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE batches ADD COLUMN brand_name VARCHAR DEFAULT '-'"))
+            print("[INFO] 'batches' tablosuna brand_name kolonu eklendi.")
+
+
 _ensure_product_supplier_email_column()
+_ensure_batch_brand_name_column()
 
 
 # ==========================================
@@ -150,6 +162,12 @@ def startup_event():
                 db.add(new_product)
                 new_stock = models.Stock(product_id=p_data["id"], warehouse_quantity=0, shelf_quantity=0)
                 db.add(new_stock)
+            db.commit()
+        else:
+            for p_data in INITIAL_PRODUCTS:
+                product = db.query(models.Product).filter(models.Product.id == p_data["id"]).first()
+                if product and product.critical_threshold != p_data["critical_threshold"]:
+                    product.critical_threshold = p_data["critical_threshold"]
             db.commit()
     finally:
         db.close()
@@ -423,7 +441,8 @@ def get_expirations(db: Session = Depends(get_db)):
                 "quantity": b.quantity,
                 "expiration_date": b.expiration_date.strftime("%d.%m.%Y"),
                 "days_left": days_left,
-                "status": status
+                "status": status,
+                "brand_name": b.brand_name or "-"
             })
             
     # SKT'si en yakın olanları en üste sırala

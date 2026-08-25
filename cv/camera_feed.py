@@ -6,31 +6,26 @@ import config
 from flask import Flask, Response
 import threading
 import time
+import torch
+
+HAS_CUDA = torch.cuda.is_available()
 
 # ==========================================
 # GÜN 11: FLASK SUNUCUSU (CANLI YAYIN İÇİN)
 # ==========================================
 app = Flask(__name__)
-output_frame = None
+output_jpeg = None
 lock = threading.Lock()
 
 def generate():
-    global output_frame, lock
+    global output_jpeg, lock
     while True:
-        if output_frame is None:
-            time.sleep(0.1)
-            continue
-            
         with lock:
-            # Kareyi JPEG formatına çevir
-            (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
-            
-        if not flag:
+            frame_data = output_jpeg
+        if frame_data is None:
+            time.sleep(0.05)
             continue
-            
-        # Tarayıcıya gönder (MJPEG formatı)
-        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n')
-        time.sleep(0.03) # ~30 FPS
+        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
 
 @app.route("/video_feed")
 def video_feed():
@@ -80,6 +75,8 @@ DETECT_EVERY_N = 2       # Her N karede bir algılama çalıştır (atlanan kare
 def main():
     print("[BİLGİ] YOLO modeli yükleniyor...")
     model = YOLO(config.YOLO_MODEL_PATH)
+    device = 0 if HAS_CUDA else 'cpu'
+    print(f"[BİLGİ] Cihaz: {'CUDA GPU' if HAS_CUDA else 'CPU'}")
 
     print(f"[BİLGİ] Kamera başlatılıyor (Kaynak: {config.CAMERA_SOURCE})...")
     cap = cv2.VideoCapture(config.CAMERA_SOURCE)
@@ -114,7 +111,7 @@ def main():
 
     print("[BİLGİ] Görüntü akışı ve kayıt başladı (output.mp4).")
     print(f"[BİLGİ] Backend adresi: {config.BACKEND_API_URL}")
-    print(f"[PERF] Algılama: {DETECT_WIDTH}x{detect_h}px | Her {DETECT_EVERY_N} karede algılama | Sınıflandırma önbellekli")
+    print(f"[PERF] Algılama: {DETECT_WIDTH}x{detect_h}px | Her {DETECT_EVERY_N} karede algılama | Cihaz: {'GPU' if HAS_CUDA else 'CPU'} | Sınıflandırma önbellekli")
 
     while True:
         ret, frame = cap.read()
@@ -132,21 +129,18 @@ def main():
             fps_start = time.time()
             print(f"[FPS] {current_fps:.1f} FPS | Aktif takipçi: {len(my_trackers)} | Frame #{frame_count}")
 
-        # Referans çizgisi
-        cv2.line(frame, (0, LINE_Y), (w, LINE_Y), (255, 0, 0), 2)
-        cv2.putText(frame, "REFERANS CIZGISI", (10, LINE_Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-
         # === ALGILAMA (her N karede bir, kucuk cercevede) ===
         run_detection = (frame_count % DETECT_EVERY_N == 0)
 
         if run_detection:
             detect_frame = cv2.resize(frame, (DETECT_WIDTH, detect_h))
-            results = model.track(detect_frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.15)
+            results = model.track(detect_frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.35, device=device)
             last_results = results
         else:
             results = last_results  # Atlanan karelerde son algilama sonuclarini kullan
 
         current_trackers = []
+        box_annotations = []
 
         if results:
             for r in results:
@@ -166,9 +160,6 @@ def main():
 
                     center_x = (x1 + x2) // 2
                     center_y = (y1 + y2) // 2
-
-                    cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
                     # === GİRİŞ/ÇIKIŞ DURUMU ===
                     current_state = 0 if center_y < LINE_Y else 1
@@ -196,7 +187,7 @@ def main():
                                     print(f"[BACKEND] Status: {resp.status_code}")
                                 except Exception as e:
                                     print(f"[BACKEND HATASI - IN] {e}")
-                            
+
                             payload = {"tracking_id": my_id, "product_id": product_id, "direction": "IN"}
                             threading.Thread(target=send_in_event, args=(payload,), daemon=True).start()
 
@@ -212,7 +203,7 @@ def main():
                                         print(f"[BACKEND] Status: {resp.status_code}")
                                     except Exception as e:
                                         print(f"[BACKEND HATASI - OUT] {e}")
-                                
+
                                 payload = {"tracking_id": my_id, "product_id": product_id, "direction": "OUT"}
                                 threading.Thread(target=send_out_event, args=(payload,), daemon=True).start()
 
@@ -239,27 +230,45 @@ def main():
 
                         current_trackers.append({'center': (center_x, center_y), 'state': current_state, 'id': my_id})
 
-                    # Ekrana yazdır (önbellekten)
                     product_id = classify_cache.get(my_id, 0)
                     product_name = config.PRODUCT_TYPES.get(product_id, "Bilinmeyen")
-                    text = f"ID:{my_id} - {product_name}"
-                    cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    box_annotations.append((x1, y1, x2, y2, center_x, center_y, my_id, product_name))
 
         my_trackers = current_trackers
 
+        # === GÖRÜNTÜLEME (yatay aynalanmış kare, normal metin) ===
+        display_frame = cv2.flip(frame, 1)
+
+        # Referans çizgisi (yatay çizgi — yatay aynalamadan etkilenmez)
+        cv2.line(display_frame, (0, LINE_Y), (w, LINE_Y), (255, 0, 0), 2)
+        ref_text = "REFERANS CIZGISI"
+        (ref_tw, _), _ = cv2.getTextSize(ref_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+        cv2.putText(display_frame, ref_text, (w - 10 - ref_tw, LINE_Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+        # Kutular, merkezler ve etiketler (x koordinatları aynalanmış)
+        for (x1, y1, x2, y2, cx, cy, my_id, product_name) in box_annotations:
+            dx1, dx2 = w - x2, w - x1
+            dcx = w - cx
+            cv2.circle(display_frame, (dcx, cy), 5, (0, 0, 255), -1)
+            cv2.rectangle(display_frame, (dx1, y1), (dx2, y2), (0, 255, 0), 2)
+            label = f"ID:{my_id} - {product_name}"
+            cv2.putText(display_frame, label, (dx1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
         # FPS ve durum bilgisi ekranda
-        cv2.putText(frame, f"FPS: {current_fps:.1f}", (w - 160, 30),
+        cv2.putText(display_frame, f"FPS: {current_fps:.1f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        cv2.putText(frame, f"Algılama: her {DETECT_EVERY_N} kare | {DETECT_WIDTH}px",
-                    (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+        status_text = f"Algılama: her {DETECT_EVERY_N} kare | {DETECT_WIDTH}px"
+        (stw, _), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+        cv2.putText(display_frame, status_text, (w - 10 - stw, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
 
-        # Canlı yayın karesi
-        global output_frame, lock
+        # Canlı yayın karesi (önceden JPEG kodlanmış - kopya ve yeniden kodlama gereksiz)
+        global output_jpeg, lock
+        _, jpeg_buf = cv2.imencode(".jpg", display_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         with lock:
-            output_frame = frame.copy()
+            output_jpeg = jpeg_buf.tobytes()
 
-        cv2.imshow("Depo Stok Takip - Tracking & Classification", frame)
-        out.write(frame)
+        cv2.imshow("Depo Stok Takip - Tracking & Classification", display_frame)
+        out.write(display_frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
