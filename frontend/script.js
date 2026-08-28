@@ -14,7 +14,6 @@ window.fetchWithAuth = async function(url, options = {}) {
 };
 
 // Ürün bazlı toptancı e-postası için önbellekler
-// supplierEmailCache: backend'deki kayıtlı değerler | pendingSupplierEdits: kullanıcı henüz kaydetmedi
 var supplierEmailCache = {};
 var pendingSupplierEdits = {};
 window.supplierEmailCache = supplierEmailCache;
@@ -23,16 +22,19 @@ window.pendingSupplierEdits = pendingSupplierEdits;
 document.addEventListener("DOMContentLoaded", () => {
 
     // ==========================================
-    // GÜN 10: GERÇEK VERİTABANI BAĞLANTISI (FETCH)
+    // DOM ELEMENTLERİ
     // ==========================================
-
-    // DOM Elementlerini seçelim
     const elElektronik = document.getElementById("stock-elektronik");
     const elGıda = document.getElementById("stock-gida");
     const elTemizlik = document.getElementById("stock-temizlik");
     const elKırtasiye = document.getElementById("stock-kirtasiye");
     const elTekstil = document.getElementById("stock-tekstil");
     const logList = document.getElementById("log-list");
+
+    let currentStockData = null;
+    let currentLogsData = null;
+    let currentExpData = null;
+    let currentAlertsData = [];
 
     // Stokları Ekrana Yazdır
     function updateStockDisplay(stockData) {
@@ -41,49 +43,61 @@ document.addEventListener("DOMContentLoaded", () => {
         elTemizlik.innerText = stockData.temizlik || 0;
         elKırtasiye.innerText = stockData.kirtasiye || 0;
         elTekstil.innerText = stockData.tekstil || 0;
+
+        // Summary: Total products count
+        const total = Object.values(stockData).reduce((s, v) => s + (v || 0), 0);
+        const summaryTotal = document.getElementById("summary-total");
+        if (summaryTotal) summaryTotal.innerText = total;
     }
 
+    // Hareket loglarını güncelle
     function updateLogs(logs) {
-        console.log("[POLL] updateLogs called with", logs.length, "entries. Most recent:", logs[0]?.timestamp);
-        logList.innerHTML = ""; // Listeyi temizle
-
-        const recentLogs = logs; // Zaten backend filtreleyip gonderiyor
+        logList.innerHTML = "";
+        const recentLogs = logs;
 
         recentLogs.forEach(log => {
             const li = document.createElement("li");
             li.className = "log-item";
 
-            // Yön bilgisine göre Türkçe metin ve CSS sınıfı
             const isEntry = log.direction === "IN";
             const directionText = isEntry ? "GİRDİ" : "ÇIKTI";
-            const directionColor = isEntry ? "#4ade80" : "#f87171";
+            const directionClass = isEntry ? "log-in" : "log-out";
+            const directionIcon = isEntry
+                ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path></svg>'
+                : '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
 
-            // Ürün ID'sini İsimle eşleştir
             const productNames = {1: "Elektronik", 2: "Gıda", 3: "Tekstil", 4: "Kırtasiye", 5: "Temizlik"};
             const productName = productNames[log.product_id] || "Bilinmeyen Ürün";
 
-            // Tarihi formatla
             const date = new Date(log.timestamp);
             const timeString = date.toLocaleTimeString('tr-TR');
 
             li.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                    <div>
-                        <span class="log-time" style="color: #888; font-size: 0.85rem; width: 70px; display: inline-block;">${timeString}</span>
-                        <span style="color: ${directionColor}; font-weight: 700; width: 60px; display: inline-block;">${directionText}</span>
-                        <span class="log-product" style="font-weight: 500; margin-left: 5px;">${productName}</span>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: ${isEntry ? 'var(--success-light)' : 'var(--danger-light)'}; color: ${isEntry ? 'var(--success)' : 'var(--danger)'};">
+                            ${directionIcon}
+                        </span>
+                        <div style="display: flex; flex-direction: column; gap: 1px;">
+                            <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">${productName}</span>
+                            <span style="font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums;">${timeString}</span>
+                        </div>
                     </div>
-                    ${true ? `<button onclick="undoMovement(${log.id})" style="background:#ff9800; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;">Geri Al</button>` : ''}
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="${directionClass}" style="font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: ${isEntry ? 'var(--success-light)' : 'var(--danger-light)'};">${directionText}</span>
+                        <button onclick="undoMovement(${log.id})" style="background: var(--warning); color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500; font-family: inherit; transition: 0.2s;" title="Hareketi Geri Al">Geri Al</button>
+                    </div>
                 </div>
             `;
-
             logList.appendChild(li);
         });
     }
 
     let chartInstance = null;
 
-    // --- 1. Login Sistemi ---
+    // ==========================================
+    // 1. LOGIN SİSTEMİ
+    // ==========================================
     if (localStorage.getItem("adminToken")) {
         document.getElementById("login-overlay").style.display = "none";
         applyRoleUI();
@@ -102,7 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             if (data.status === "success") {
                 localStorage.setItem("adminToken", data.token);
-                localStorage.setItem("userRole", data.role); // Role kaydediliyor
+                localStorage.setItem("userRole", data.role);
                 document.getElementById("login-overlay").style.display = "none";
                 applyRoleUI();
             } else {
@@ -115,7 +129,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // --- 2. Dark Mode ---
+    // ==========================================
+    // 2. DARK MODE
+    // ==========================================
     if (localStorage.getItem("theme") === "dark") {
         document.documentElement.setAttribute("data-theme", "dark");
     }
@@ -130,12 +146,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // --- 3. Excel İndirme ---
+    // ==========================================
+    // 3. EXCEL İNDİRME
+    // ==========================================
     window.downloadExcel = function() {
         window.open("http://localhost:8000/export/csv", "_blank");
     };
 
-    // --- 4. Chart.js Çizimi ---
+    // ==========================================
+    // 4. CHART.JS
+    // ==========================================
     window.updateChart = async function() {
         try {
             const res = await fetch("http://localhost:8000/analytics", { cache: "no-store" });
@@ -144,14 +164,14 @@ document.addEventListener("DOMContentLoaded", () => {
             const ctx = document.getElementById('inventoryChart');
             if (!ctx) return;
 
-                        const colorMap = {
-                'Elektronik': '#60a5fa',
-                'Gida': '#f87171',
-                'Temizlik': '#4ade80',
-                'Kirtasiye': '#fbbf24',
-                'Tekstil': '#c084fc'
+            const colorMap = {
+                'Elektronik': '#3b82f6',
+                'Gida': '#ef4444',
+                'Temizlik': '#22c55e',
+                'Kirtasiye': '#f59e0b',
+                'Tekstil': '#8b5cf6'
             };
-            const dynamicColors = data.labels.map(label => colorMap[label] || '#999999');
+            const dynamicColors = data.labels.map(label => colorMap[label] || '#94a3b8');
 
             if (chartInstance) {
                 chartInstance.data.labels = data.labels;
@@ -166,13 +186,26 @@ document.addEventListener("DOMContentLoaded", () => {
                         datasets: [{
                             data: data.data,
                             backgroundColor: dynamicColors,
-                            borderWidth: 0
+                            borderWidth: 0,
+                            hoverBorderWidth: 2,
+                            hoverBorderColor: 'rgba(255,255,255,0.5)'
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: { legend: { position: 'right' } }
+                        cutout: '65%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 16,
+                                    usePointStyle: true,
+                                    pointStyleWidth: 10,
+                                    font: { family: 'Inter', size: 12 }
+                                }
+                            }
+                        }
                     }
                 });
             }
@@ -181,7 +214,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // --- 5. Karekod (QR Code) Modalı ---
+    // ==========================================
+    // 5. QR CODE MODAL
+    // ==========================================
     let qrCodeObj = null;
 
     window.generateQR = function(batchId, productName, expDate) {
@@ -190,13 +225,13 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById('qrModalDesc').innerText = `Ürün: ${productName} | SKT: ${expDate}`;
 
         const qrContainer = document.getElementById('qrcode');
-        qrContainer.innerHTML = ''; // Temizle
+        qrContainer.innerHTML = '';
 
         qrCodeObj = new QRCode(qrContainer, {
             text: `DEPOTRACK-BATCHID:${batchId}|URUN:${productName}|SKT:${expDate}`,
             width: 150,
             height: 150,
-            colorDark : "#000000",
+            colorDark : "#0f172a",
             colorLight : "#ffffff",
             correctLevel : QRCode.CorrectLevel.H
         });
@@ -207,56 +242,54 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     // ==========================================
-    // CANLI VERİ ÇEKME DÖNGÜSÜ
+    // CANLI VERİ ÇEKME
     // ==========================================
-
-
     let previousStock = null;
 
-    // Gerçek Sunucudan Veri Çekme Fonksiyonu
     async function fetchLiveStock() {
-        console.log("[POLL] fetchLiveStock called at", new Date().toLocaleTimeString());
-        // 1. Stok verisini çek
+        // 1. Stok verisi
         try {
             const response = await fetch("http://localhost:8000/stock", { cache: "no-store" });
             const currentStock = await response.json();
-
-            // Sadece görsellik için log yazdırma
-            if (previousStock) {
-                for (let key in currentStock) {
-                    if (currentStock[key] > previousStock[key]) {
-                        // Backend'den log çektiğimiz için bu kısmı geçebiliriz,
-                        // ama isterseniz anlık animasyon vs koyulabilir.
-                    }
-                }
-            }
-
-            previousStock = JSON.parse(JSON.stringify(currentStock)); // Kopyasını al
+            currentStockData = currentStock;
+            previousStock = JSON.parse(JSON.stringify(currentStock));
             updateStockDisplay(currentStock);
         } catch (error) {
             console.error("Stok verisi çekilemedi!", error);
         }
 
-        // 2. Hareket geçmişi (Loglar) verisini çek
+        // 2. Hareket geçmişi
         try {
             const filterVal = document.getElementById("log-time-filter") ? document.getElementById("log-time-filter").value : "5";
             const logsRes = await fetch("http://localhost:8000/movements?filter=" + filterVal, { cache: "no-store" });
             const logsData = await logsRes.json();
+            currentLogsData = logsData;
             updateLogs(logsData);
+            renderTimeline(logsData);
+
+            // Update summary: movements count
+            const summaryMovements = document.getElementById("summary-movements");
+            if (summaryMovements) summaryMovements.innerText = logsData.length;
         } catch (error) {
             console.error("Loglar çekilemedi:", error);
         }
 
-        // 3. SKT Uyarılarını ve Tüm Tabloyu Çek
+        // 3. SKT Uyarıları
         try {
             const expRes = await fetch("http://localhost:8000/expirations", { cache: "no-store" });
             const expData = await expRes.json();
+            currentExpData = expData;
             if (typeof renderAllBatches === "function") {
                 renderAllBatches(expData);
             }
+
+            // Update summary: active batches count
+            const summaryBatches = document.getElementById("summary-batches");
+            if (summaryBatches) summaryBatches.innerText = expData.length;
         } catch (error) {
             console.error("SKT verileri çekilemedi:", error);
         }
+
         // 4. Palet Durumunu Güncelle
         if (typeof checkPalletStatus === "function") {
             checkPalletStatus();
@@ -271,91 +304,259 @@ document.addEventListener("DOMContentLoaded", () => {
         if (typeof updateChart === "function") {
             updateChart();
         }
+
+        // 7. AI İçgörülerini Güncelle
+        computeInsights();
     }
-
-// --- Rol Yönetimi UI Güncellemeleri ---
-function applyRoleUI() {
-    const role = localStorage.getItem("userRole");
-    const reportSection = document.getElementById("report-section");
-    const lowStockAlerts = document.getElementById("low-stock-alerts-container");
-    const adminIcons = document.querySelectorAll(".admin-only");
-
-    if (role === "worker") {
-        if (reportSection) reportSection.style.display = "none";
-        adminIcons.forEach(icon => icon.style.display = "none");
-    } else {
-        if (reportSection) reportSection.style.display = "flex";
-        adminIcons.forEach(icon => icon.style.display = "inline-block");
-    }
-}
-window.applyRoleUI = applyRoleUI;
-
-window.logout = function() {
-    localStorage.removeItem("adminToken");
-    localStorage.removeItem("userRole");
-    window.location.reload();
-};
-
-window.promptEditStock = async function(productName) {
-    if (localStorage.getItem("userRole") === "worker") {
-        alert("Bu işlem için yetkiniz yok!");
-        return;
-    }
-    const currentVal = document.getElementById("stock-" + productName).innerText;
-    const newVal = prompt(productName.toUpperCase() + " için yeni stok miktarını girin:", currentVal);
-
-    if (newVal !== null && newVal.trim() !== "" && !isNaN(newVal)) {
-        let parsedVal = parseInt(newVal);
-        if (parsedVal < 0) {
-            alert("Stok 0'dan küçük olamaz!");
-            parsedVal = 0;
-        }
-        try {
-            const res = await fetchWithAuth("http://localhost:8000/stock/update", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ product_name: productName, new_quantity: parsedVal })
-            });
-            const data = await res.json();
-            if (data.status === "success") {
-                // The polling will update the UI automatically, but we can also update it immediately
-                document.getElementById("stock-" + productName).innerText = data.new_quantity;
-            } else {
-                alert("Güncelleme başarısız: " + data.detail);
-            }
-        } catch(e) {
-            alert("Sunucu ile iletişim kurulamadı.");
-        }
-    }
-};
-
 
     // ==========================================
-    // WEBSOCKET (CANLI YAYIN) BAĞLANTISI
+    // ROL YÖNETİMİ
+    // ==========================================
+
+    // ==========================================
+    // AI İÇGÖRÜLERİ
+    // ==========================================
+    const productNames = {1: "Elektronik", 2: "Gıda", 3: "Tekstil", 4: "Kırtasiye", 5: "Temizlik"};
+
+    function computeInsights() {
+        const container = document.getElementById("ai-insights-list");
+        if (!container) return;
+
+        const insights = [];
+
+        if (currentStockData) {
+            const stockEntries = Object.entries(currentStockData);
+            const totalStock = stockEntries.reduce((s, [, v]) => s + (v || 0), 0);
+            const zeroStock = stockEntries.filter(([, v]) => v === 0);
+            const maxProduct = stockEntries.reduce((max, [k, v]) => (v || 0) > (max[1] || 0) ? [k, v] : max, ["", 0]);
+
+            if (totalStock === 0) {
+                insights.push({
+                    icon: "amber",
+                    svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+                    text: "Depoda hiçbir ürün bulunmuyor.",
+                    detail: "Stok girişi yapılmamış."
+                });
+            } else {
+                insights.push({
+                    icon: "blue",
+                    svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>',
+                    text: "Depoda toplam " + totalStock + " adet ürün bulunuyor.",
+                    detail: stockEntries.length + " farklı kategoride stok mevcut."
+                });
+
+                if (maxProduct[1] > 0) {
+                    const maxName = productNames[maxProduct[0]] || maxProduct[0];
+                    insights.push({
+                        icon: "green",
+                        svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>',
+                        text: "En fazla stoğa sahip ürün: " + maxName,
+                        detail: maxProduct[1] + " adet ile depodaki en yüksek stok."
+                    });
+                }
+
+                if (zeroStock.length > 0) {
+                    const zeroNames = zeroStock.map(([k]) => productNames[k] || k).join(", ");
+                    insights.push({
+                        icon: "red",
+                        svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>',
+                        text: zeroStock.length + " ürünün stoğu tamamen bitti.",
+                        detail: zeroNames
+                    });
+                }
+            }
+        }
+
+        if (currentAlertsData && currentAlertsData.length > 0) {
+            insights.push({
+                icon: "amber",
+                svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+                text: currentAlertsData.length + " ürün kritik stok seviyesinin altında.",
+                detail: "Sipariş gerekebilir."
+            });
+        }
+
+        if (currentLogsData && currentLogsData.length > 0) {
+            const inCount = currentLogsData.filter(l => l.direction === "IN").length;
+            const outCount = currentLogsData.filter(l => l.direction === "OUT").length;
+
+            insights.push({
+                icon: "cyan",
+                svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>',
+                text: currentLogsData.length + " hareket kaydı mevcut.",
+                detail: inCount + " giriş, " + outCount + " çıkış"
+            });
+
+            const productMovements = {};
+            currentLogsData.forEach(l => {
+                const pid = l.product_id;
+                productMovements[pid] = (productMovements[pid] || 0) + 1;
+            });
+            const topMover = Object.entries(productMovements).reduce((max, [k, v]) => v > (max[1] || 0) ? [k, v] : max, ["", 0]);
+            if (topMover[1] > 0) {
+                const topName = productNames[topMover[0]] || "Bilinmeyen";
+                insights.push({
+                    icon: "purple",
+                    svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+                    text: "En fazla hareket gören ürün: " + topName,
+                    detail: topMover[1] + " hareket kaydı"
+                });
+            }
+        }
+
+        if (currentExpData && currentExpData.length > 0) {
+            const urgentBatches = currentExpData.filter(e => e.status === "expired" || e.status === "critical" || e.status === "danger");
+            if (urgentBatches.length > 0) {
+                insights.push({
+                    icon: "red",
+                    svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>',
+                    text: urgentBatches.length + " partinin son kullanma tarihi yaklaşıyor veya geçmiş.",
+                    detail: "FEFO akışı kontrol edilmeli."
+                });
+            }
+
+            insights.push({
+                icon: "green",
+                svg: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>',
+                text: currentExpData.length + " aktif parti takip ediliyor.",
+                detail: "Parti bazlı envanter yönetimi aktif."
+            });
+        }
+
+        if (insights.length === 0) {
+            container.innerHTML = '<div class="insight-neutral">Yeterli veri bulunmuyor. Veriler toplandıkça içgörüler burada görünecek.</div>';
+            return;
+        }
+
+        container.innerHTML = "";
+        insights.forEach(function(insight) {
+            var card = document.createElement("div");
+            card.className = "insight-card";
+            card.innerHTML =
+                '<div class="insight-icon insight-icon-' + insight.icon + '">' + insight.svg + '</div>' +
+                '<div class="insight-content">' +
+                    '<div class="insight-text">' + insight.text + '</div>' +
+                    '<div class="insight-detail">' + insight.detail + '</div>' +
+                '</div>';
+            container.appendChild(card);
+        });
+    }
+
+    // ==========================================
+    // KAMERA OLAY ZAMAN ÇİZELGESİ
+    // ==========================================
+    function renderTimeline(logs) {
+        var timelineContainer = document.getElementById("camera-timeline-list");
+        if (!timelineContainer) return;
+
+        if (!logs || logs.length === 0) {
+            timelineContainer.innerHTML = '<div class="camera-timeline-empty">Henüz olay kaydı yok</div>';
+            return;
+        }
+
+        var recentLogs = logs.slice(0, 8);
+        timelineContainer.innerHTML = "";
+
+        recentLogs.forEach(function(log) {
+            var isEntry = log.direction === "IN";
+            var directionText = isEntry ? "GİRİŞ" : "ÇIKIŞ";
+            var iconClass = isEntry ? "timeline-icon-in" : "timeline-icon-out";
+            var badgeClass = isEntry ? "timeline-badge-in" : "timeline-badge-out";
+            var iconSvg = isEntry
+                ? '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path></svg>'
+                : '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
+
+            var productName = productNames[log.product_id] || "Bilinmeyen";
+            var date = new Date(log.timestamp);
+            var timeStr = date.toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+
+            var item = document.createElement("div");
+            item.className = "camera-timeline-item";
+            item.innerHTML =
+                '<span class="timeline-time">' + timeStr + '</span>' +
+                '<span class="timeline-icon ' + iconClass + '">' + iconSvg + '</span>' +
+                '<span class="timeline-product">' + productName + '</span>' +
+                '<span class="timeline-badge ' + badgeClass + '">' + directionText + '</span>';
+            timelineContainer.appendChild(item);
+        });
+    }
+
+    // ==========================================
+    // ROL YÖNETİMİ
+    // ==========================================
+    function applyRoleUI() {
+        const role = localStorage.getItem("userRole");
+        const reportSection = document.getElementById("report-section");
+        const lowStockAlerts = document.getElementById("low-stock-alerts-container");
+        const adminIcons = document.querySelectorAll(".admin-only");
+
+        if (role === "worker") {
+            if (reportSection) reportSection.style.display = "none";
+            adminIcons.forEach(icon => icon.style.display = "none");
+        } else {
+            if (reportSection) reportSection.style.display = "flex";
+            adminIcons.forEach(icon => icon.style.display = "inline-flex");
+        }
+    }
+    window.applyRoleUI = applyRoleUI;
+
+    window.logout = function() {
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("userRole");
+        window.location.reload();
+    };
+
+    window.promptEditStock = async function(productName) {
+        if (localStorage.getItem("userRole") === "worker") {
+            alert("Bu işlem için yetkiniz yok!");
+            return;
+        }
+        const currentVal = document.getElementById("stock-" + productName).innerText;
+        const newVal = prompt(productName.toUpperCase() + " için yeni stok miktarını girin:", currentVal);
+
+        if (newVal !== null && newVal.trim() !== "" && !isNaN(newVal)) {
+            let parsedVal = parseInt(newVal);
+            if (parsedVal < 0) {
+                alert("Stok 0'dan küçük olamaz!");
+                parsedVal = 0;
+            }
+            try {
+                const res = await fetchWithAuth("http://localhost:8000/stock/update", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ product_name: productName, new_quantity: parsedVal })
+                });
+                const data = await res.json();
+                if (data.status === "success") {
+                    document.getElementById("stock-" + productName).innerText = data.new_quantity;
+                } else {
+                    alert("Güncelleme başarısız: " + data.detail);
+                }
+            } catch(e) {
+                alert("Sunucu ile iletişim kurulamadı.");
+            }
+        }
+    };
+
+    // ==========================================
+    // WEBSOCKET
     // ==========================================
     const ws = new WebSocket("ws://localhost:8000/ws");
     ws.onmessage = (event) => {
         if(event.data === "update") {
-            console.log("[WS] Sunucudan guncelleme tetigi geldi!");
             fetchLiveStock();
         }
     };
-    ws.onopen = () => console.log("[WS] Baglanti kuruldu.");
-    ws.onclose = () => console.log("[WS] Baglanti koptu.");
+    ws.onopen = () => console.log("[WS] Bağlantı kuruldu.");
+    ws.onclose = () => console.log("[WS] Bağlantı koptu.");
 
-    // Sayfa yüklendiğinde ilk veriyi çek
     fetchLiveStock();
-
-    // Her 1 saniyede bir sunucudan güncel verileri otomatik olarak çek!
     setInterval(fetchLiveStock, 1000);
 
-    // ==========================================
-    // GÜN 13: RAPOR İNDİR BUTONU TIKLAMA OLAYI
-    // ==========================================
+    // Download report button
     const downloadBtn = document.getElementById("download-report-btn");
     if (downloadBtn) {
         downloadBtn.addEventListener("click", () => {
-            // Arka uçtaki (Backend) rapor üretici endpoint'e yönlendir, tarayıcı dosyayı indirir
             window.open("http://localhost:8000/report", "_blank");
         });
     }
@@ -363,16 +564,14 @@ window.promptEditStock = async function(productName) {
     // ==========================================
     // SKT VE PARTİ YÖNETİMİ
     // ==========================================
-
     const batchesList = document.getElementById("batches-list");
-
 
     window.promptEditBrand = async function(batchId, currentBrand) {
         if (localStorage.getItem("userRole") === "worker") {
-            alert("Sadece yetkili markayi duzenleyebilir.");
+            alert("Sadece yetkili markayı düzenleyebilir.");
             return;
         }
-        const newBrand = prompt("Lutfen yeni marka adini girin:", currentBrand === "-" ? "" : currentBrand);
+        const newBrand = prompt("Lütfen yeni marka adını girin:", currentBrand === "-" ? "" : currentBrand);
         if (newBrand !== null && newBrand.trim() !== "") {
             try {
                 await fetch("http://localhost:8000/batches/" + batchId + "/brand", {
@@ -380,9 +579,9 @@ window.promptEditStock = async function(productName) {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ brand_name: newBrand.trim() })
                 });
-                fetchExpirations(); // reload table
+                fetchLiveStock();
             } catch (e) {
-                console.error("Marka guncelleme hatasi:", e);
+                console.error("Marka güncelleme hatası:", e);
             }
         }
     };
@@ -399,7 +598,6 @@ window.promptEditStock = async function(productName) {
         const newDate = prompt("Parti #" + batchId + " için yeni SKT girin (YYYY-AA-GG formatında):", defaultDate);
 
         if (newDate !== null && newDate.trim() !== "") {
-            // YYYY-MM-DD validasyonu
             if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
                 alert("Lütfen geçerli bir tarih formatı girin (Örn: 2024-12-31)");
                 return;
@@ -414,7 +612,7 @@ window.promptEditStock = async function(productName) {
                 });
                 const data = await res.json();
                 if (data.status === "success") {
-                    fetchLiveStock(); // Tabloyu anında yenile
+                    fetchLiveStock();
                 } else {
                     alert("Güncelleme başarısız: " + data.detail);
                 }
@@ -433,7 +631,7 @@ window.promptEditStock = async function(productName) {
 
         try {
             await fetch(`http://localhost:8000/batches/${batchId}/waste`, { method: "POST" });
-            fetchLiveStock(); // Tabloyu anında yenile
+            fetchLiveStock();
         } catch (e) {
             console.error("İmha hatası", e);
         }
@@ -444,50 +642,55 @@ window.promptEditStock = async function(productName) {
         batchesList.innerHTML = "";
 
         if (expirations.length === 0) {
-            batchesList.innerHTML = `<tr><td colspan="7" style="padding: 10px; text-align: center;">Depoda kayitli koli bulunmamaktadir.</td></tr>`;
+            batchesList.innerHTML = `<tr><td colspan="7" style="padding: 24px; text-align: center; color: var(--text-muted);">Depoda kayıtlı koli bulunmamaktadır.</td></tr>`;
             return;
         }
 
         expirations.forEach(exp => {
             const tr = document.createElement("tr");
-            tr.style.borderBottom = "1px solid #eee";
 
             let statusText = "Güvenli";
-            let statusColor = "#4ade80";
+            let statusColor = "var(--success)";
+            let statusBg = "var(--success-light)";
             if (exp.status === "expired") {
                 statusText = "Süresi Geçmiş";
-                statusColor = "#ef4444";
+                statusColor = "var(--danger)";
+                statusBg = "var(--danger-light)";
             } else if (exp.status === "critical") {
-                statusText = "Kritik (0 gün)";
-                statusColor = "#f97316";
+                statusText = "Kritik";
+                statusColor = "var(--danger)";
+                statusBg = "var(--danger-light)";
             } else if (exp.status === "warning") {
                 statusText = "Yaklaşıyor";
-                statusColor = "#fbbf24";
+                statusColor = "var(--warning)";
+                statusBg = "var(--warning-light)";
             }
 
-            const brandText = exp.brand_name === "-" ? "<i style='opacity:0.5; font-size:12px;'>Belirtilmedi</i>" : exp.brand_name;
+            const brandText = exp.brand_name === "-" ? "<span style='opacity:0.4; font-size:12px; font-style:italic;'>Belirtilmedi</span>" : exp.brand_name;
             const brandHtml = localStorage.getItem("userRole") === "admin"
-                ? `<span style="cursor: pointer; border-bottom: 1px dashed #ccc;" onclick="promptEditBrand(${exp.batch_id}, '${exp.brand_name}')">${brandText} ✏️</span>`
+                ? `<span style="cursor: pointer; border-bottom: 1px dashed var(--border); padding-bottom: 1px; transition: 0.2s;" onclick="promptEditBrand(${exp.batch_id}, '${exp.brand_name}')">${brandText} <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline; vertical-align:middle;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></span>`
                 : brandText;
 
             const productName = exp.product_name === "Gida" ? "Gıda" : exp.product_name === "Kirtasiye" ? "Kırtasiye" : exp.product_name;
 
             tr.innerHTML = `
-                <td style="padding: 10px;">#${exp.batch_id}</td>
-                <td style="padding: 10px; font-weight: bold;">${productName}</td>
-                <td style="padding: 10px;">${brandHtml}</td>
-                <td style="padding: 10px;">${exp.quantity} Adet</td>
-                <td style="padding: 10px;">${exp.expiration_date}</td>
-                <td style="padding: 10px; color: ${statusColor}; font-weight: bold;">${statusText} (${exp.days_left} gün)</td>
-                <td style="padding: 10px; display: flex; gap: 5px;">
-                    ${localStorage.getItem("userRole") !== "worker" ? `
-                    <button onclick="promptEditSKT(${exp.batch_id}, '${exp.expiration_date}')" style="background-color: #f59e0b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">📅 SKT Düzenle</button>
-                    <button onclick="wasteBatch(${exp.batch_id})" style="background-color: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">İmha Et</button>
-                    <button onclick="generateQR(${exp.batch_id}, '${productName}', '${exp.expiration_date}')" style="background-color: #64748b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 3px;">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><rect x="7" y="7" width="3" height="3"></rect><rect x="14" y="7" width="3" height="3"></rect><rect x="7" y="14" width="3" height="3"></rect><rect x="14" y="14" width="3" height="3"></rect></svg>
-                        Karekod
-                    </button>
-                    ` : '<span style="color: var(--text-secondary); font-size: 12px; font-style: italic;">Yetki Yok</span>'}
+                <td style="font-weight: 500; color: var(--text-secondary);">#${exp.batch_id}</td>
+                <td style="font-weight: 600;">${productName}</td>
+                <td>${brandHtml}</td>
+                <td style="font-weight: 500;">${exp.quantity} Adet</td>
+                <td style="font-variant-numeric: tabular-nums;">${exp.expiration_date}</td>
+                <td><span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600; font-size: 0.8rem; padding: 3px 10px; border-radius: 20px; background: ${statusBg}; color: ${statusColor};"><span style="width:6px; height:6px; border-radius:50%; background:currentColor;"></span>${statusText} (${exp.days_left}g)</span></td>
+                <td>
+                    <div style="display: flex; gap: 5px; flex-wrap: nowrap;">
+                        ${localStorage.getItem("userRole") !== "worker" ? `
+                        <button onclick="promptEditSKT(${exp.batch_id}, '${exp.expiration_date}')" style="background: var(--warning); color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; font-family: inherit; transition: 0.2s;">📅 SKT</button>
+                        <button onclick="wasteBatch(${exp.batch_id})" style="background: var(--danger); color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; font-family: inherit; transition: 0.2s;">İmha</button>
+                        <button onclick="generateQR(${exp.batch_id}, '${productName}', '${exp.expiration_date}')" style="background: var(--bg-primary); color: var(--text-secondary); border: 1px solid var(--border); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500; font-family: inherit; display: flex; align-items: center; gap: 3px; transition: 0.2s;">
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                            QR
+                        </button>
+                        ` : '<span style="color: var(--text-muted); font-size: 11px; font-style: italic;">Yetki Yok</span>'}
+                    </div>
                 </td>
             `;
             batchesList.appendChild(tr);
@@ -495,52 +698,43 @@ window.promptEditStock = async function(productName) {
     };
 
     // ==========================================
-    // GÜN 16: KRİTİK STOK VE TOPTANCI SİPARİŞİ
+    // KRİTİK STOK VE TOPTANCI SİPARİŞİ
     // ==========================================
-
-    // Oturum boyunca sipariş verilen ürünleri tutalım ki tekrar tekrar buton çıkmasın
     const orderedProductsThisSession = new Set();
-
-    // Satırları her saniye yeniden kurmamak için: veri değişmedikçe DOM'a dokunma.
-    // Böylece kullanıcı e-posta yazarken input içeriği asla silinmez.
     let lastLowStockSignature = "";
 
-    // value="..." icin guvenli kacirma
     const escAttr = s => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-let audioCtx = null;
-function playBeep() {
-    try {
-        if (!audioCtx) {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (AudioContext) audioCtx = new AudioContext();
-        }
-        if (audioCtx) {
-            // Resume if suspended (browser auto-play policy)
-            if (audioCtx.state === 'suspended') audioCtx.resume();
+    let audioCtx = null;
+    function playBeep() {
+        try {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) audioCtx = new AudioContext();
+            }
+            if (audioCtx) {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.5);
+            }
+        } catch(e) { console.log("Audio not supported or blocked"); }
+    }
 
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-
-            oscillator.type = 'triangle';
-            oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
-
-            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.5);
-        }
-    } catch(e) { console.log("Audio not supported or blocked"); }
-}
-
-const notifiedLowStockIds = new Set();
+    const notifiedLowStockIds = new Set();
 
     window.checkLowStock = async function() {
-        if (localStorage.getItem("userRole") === "worker") return; // Görevli uyarı görmez
+        if (localStorage.getItem("userRole") === "worker") {
+            currentAlertsData = [];
+            return;
+        }
         const container = document.getElementById("low-stock-alerts-container");
         const list = document.getElementById("low-stock-list");
         if (!container || !list) return;
@@ -549,8 +743,12 @@ const notifiedLowStockIds = new Set();
             const res = await fetch("http://localhost:8000/alerts/low-stock", { cache: "no-store" });
             const alerts = await res.json();
 
-            // Eğer daha önce sipariş verdiğimiz ürünler varsa listeden gizleyelim
             const activeAlerts = alerts.filter(a => !orderedProductsThisSession.has(a.product_id));
+            currentAlertsData = activeAlerts;
+
+            // Update summary critical count
+            const summaryCritical = document.getElementById("summary-critical");
+            if (summaryCritical) summaryCritical.innerText = activeAlerts.length;
 
             let hasNewAlert = false;
             activeAlerts.forEach(a => {
@@ -560,24 +758,21 @@ const notifiedLowStockIds = new Set();
                 }
             });
 
-            // Eger listede olmayan ama onceden bildirilmis varsa (stoğu artmissa) listeden cikar
             notifiedLowStockIds.forEach(id => {
                 if (!activeAlerts.find(a => a.product_id === id)) {
                     notifiedLowStockIds.delete(id);
                 }
             });
 
-            if (hasNewAlert) {
-                playBeep();
-            }
+            if (hasNewAlert) playBeep();
 
             if (activeAlerts.length === 0) {
                 container.style.display = "none";
                 lastLowStockSignature = "";
+                currentAlertsData = [];
                 return;
             }
 
-            // Ürünlerin kaydedilmiş toptancı e-postalarını çek (sadece eksikse)
             if (activeAlerts.some(a => !(a.product_id in supplierEmailCache))) {
                 const pRes = await fetch("http://localhost:8000/products", { cache: "no-store" });
                 if (pRes.ok) {
@@ -587,14 +782,12 @@ const notifiedLowStockIds = new Set();
 
             container.style.display = "block";
 
-            // Veri aynıysa listeyi yeniden kurmadan çık (input koruma)
             const signature = activeAlerts
                 .map(a => `${a.product_id}:${a.current_quantity}:${a.critical_threshold}:${supplierEmailCache[a.product_id] ?? ""}`)
                 .join("|");
             if (signature === lastLowStockSignature) return;
             lastLowStockSignature = signature;
 
-            // Yeniden kurmadan önce kullanıcının henüz kaydetmediği girdileri sakla
             list.querySelectorAll("input[data-supplier-input]").forEach(inp => {
                 pendingSupplierEdits[inp.dataset.productId] = inp.value;
             });
@@ -608,32 +801,31 @@ const notifiedLowStockIds = new Set();
 
                 const item = document.createElement("div");
                 item.dataset.productId = pid;
-                item.style.backgroundColor = "var(--bg-color)";
-                item.style.border = "1px solid var(--border-color)";
-                item.style.padding = "10px 15px";
-                item.style.borderRadius = "8px";
-                item.style.display = "flex";
-                item.style.justifyContent = "space-between";
-                item.style.alignItems = "center";
-                item.style.gap = "10px";
-                item.style.flexWrap = "wrap";
+                item.className = "alert-card";
 
                 item.innerHTML = `
-                    <div style="flex: 1 1 220px; min-width: 200px;">
-                        <strong style="font-size: 16px;">${alert.product_name}</strong> stoğu kritik seviyede!
-                        <span style="color: #ef5350; font-weight: bold;">(Mevcut: ${alert.current_quantity} Kutu / Sınır: ${alert.critical_threshold})</span>
-                        ${savedEmail ? '' : '<span class="supplier-missing-warning" style="display:block; font-size:12px; color:#ef6c00; margin-top:2px;">Bu ürün için toptancı e-postası tanımlı değil.</span>'}
+                    <div class="alert-card-info">
+                        <div class="alert-card-header">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            <strong style="font-size: 15px; color: var(--text-primary);">${alert.product_name}</strong>
+                        </div>
+                        <div class="alert-card-stats">
+                            <span class="alert-stat alert-stat-danger">${alert.current_quantity} Adet</span>
+                            <span style="color: var(--text-muted); font-size: 0.75rem;">/ Sınır: ${alert.critical_threshold}</span>
+                        </div>
+                        ${savedEmail ? '' : '<div class="supplier-missing-warning"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>Tedarikçi e-postası tanımlı değil</div>'}
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <input type="email" data-supplier-input data-product-id="${pid}" placeholder="Toptancı e-postası girin..."
-                               value="${escAttr(emailValue)}" title="Bu ürünün toptancı e-posta adresi"
-                               style="padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; width: 210px; max-width: 100%; font-size: 13px;">
-                        <button onclick="saveSupplierEmail(${pid}, this)" title="Bu ürünün toptancı e-postasını kaydet"
-                                style="background-color: #f97316; color: white; border: none; padding: 7px 12px; border-radius: 4px; font-weight: bold; font-size: 13px; cursor: pointer;">Kaydet</button>
-                        <span class="supplier-save-status" style="font-size: 12px; font-weight: bold; display: none;"></span>
-                        <button onclick="placeOrder(${pid}, this)" style="background-color: #ef6c00; color: white; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: 0.3s;" onmouseover="this.style.backgroundColor='#e65100'" onmouseout="this.style.backgroundColor='#ef6c00'">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                            Toptancıya Sipariş Geç
+                    <div class="alert-card-actions">
+                        <div class="alert-email-row">
+                            <input type="email" data-supplier-input data-product-id="${pid}" placeholder="tedarikci@ornek.com"
+                                   value="${escAttr(emailValue)}" title="Toptancı e-posta adresi"
+                                   class="alert-email-input">
+                            <button onclick="saveSupplierEmail(${pid}, this)" class="alert-save-btn">Kaydet</button>
+                            <span class="supplier-save-status"></span>
+                        </div>
+                        <button onclick="placeOrder(${pid}, this)" class="alert-order-btn">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                            Sipariş Geç
                         </button>
                     </div>
                 `;
@@ -645,7 +837,6 @@ const notifiedLowStockIds = new Set();
         }
     };
 
-    // Seçili ürünün toptancı e-postasını JWT ile backend'e kaydeder (sayfa yenilenmez)
     window.saveSupplierEmail = async function(productId, btn) {
         const item = btn.closest("[data-product-id]");
         const input = item ? item.querySelector("input[data-supplier-input]") : null;
@@ -681,7 +872,7 @@ const notifiedLowStockIds = new Set();
                 body: JSON.stringify({ supplier_email: emailVal })
             });
 
-            if (res.status === 401) return; // fetchWithAuth zaten giriş ekranını açtı
+            if (res.status === 401) return;
 
             const data = await res.json().catch(() => ({}));
             if (res.ok && data.status === "success") {
@@ -689,12 +880,10 @@ const notifiedLowStockIds = new Set();
                 supplierEmailCache[productId] = savedVal;
                 delete pendingSupplierEdits[productId];
 
-                // Aninda UI senkronu: kaydedilen degeri goster, uyarıyı guncelle
-                // (1 sn'lik periyodik refresh'i beklemeden)
                 input.value = savedVal;
                 const warnEl = item ? item.querySelector(".supplier-missing-warning") : null;
                 if (warnEl) warnEl.style.display = savedVal ? "none" : "";
-                lastLowStockSignature = ""; // sonraki dongude satir tam tazelensin
+                lastLowStockSignature = "";
 
                 showStatus("Kaydedildi ✓", "#16a34a");
             } else {
@@ -712,23 +901,21 @@ const notifiedLowStockIds = new Set();
 });
 
 window.undoMovement = async function(id) {
-    if(!confirm("Bu hareketi geri almak istediginize emin misiniz?")) return;
+    if(!confirm("Bu hareketi geri almak istediğinize emin misiniz?")) return;
     try {
         const res = await window.fetchWithAuth("http://localhost:8000/movements/" + id + "/undo", {method: "POST"});
-        if (res.ok) { alert("Basariyla geri alindi!"); window.location.reload(); }
-        else { alert("Geri alma basarisiz!"); }
+        if (res.ok) { alert("Başarıyla geri alındı!"); window.location.reload(); }
+        else { alert("Geri alma başarısız!"); }
     } catch(e) { alert("Hata: " + e); }
 };
 
 window.placeOrder = function(productId, btn) {
     if (localStorage.getItem("userRole") === "worker") {
-        alert("Sadece yetkili siparis gecebilir.");
+        alert("Sadece yetkili sipariş geçebilir.");
         return;
     }
 
-    // Aliciyi sunucu secer: urune tanimli supplier_email > varsayilan toptanci.
-    // Ayrica kullanici global e-posta girmek zorunda degil; per-urun Kaydet yeterli.
-    btn.innerHTML = "Sipari\u015f Ge\u00e7iliyor...";
+    btn.innerHTML = "Sipariş Geçiliyor...";
     btn.disabled = true;
 
     fetch("http://localhost:8000/order/" + productId, { method: "POST" })
@@ -736,25 +923,24 @@ window.placeOrder = function(productId, btn) {
         .then(data => {
             if (data.status === "success" && data.sent) {
                 if (data.mode === "simulasyon") {
-                    btn.innerHTML = "Sim\u00fclasyon \u2714\ufe0f";
+                    btn.innerHTML = "Simülasyon ✔";
+                    btn.style.background = "var(--accent)";
                 } else {
-                    btn.innerHTML = "Sipari\u015f \u0130letildi \u2714\ufe0f";
-                    btn.style.backgroundColor = "#4ade80";
-                    btn.style.color = "white";
+                    btn.innerHTML = "Sipariş İletildi ✔";
+                    btn.style.background = "var(--success)";
                 }
                 if (typeof orderedProductsThisSession !== 'undefined') {
                     orderedProductsThisSession.add(productId);
                 }
             } else {
                 btn.innerHTML = "Hata!";
-                btn.style.backgroundColor = "#ef4444";
-                btn.style.color = "white";
-                console.error("Siparis e-postasi gonderilemedi:", data);
+                btn.style.background = "var(--danger)";
+                console.error("Sipariş e-postası gönderilemedi:", data);
             }
             setTimeout(() => { checkLowStock(); }, 2000);
         })
         .catch(err => {
-            console.error("Siparis hatasi:", err);
+            console.error("Sipariş hatası:", err);
             btn.innerHTML = "Hata!";
             btn.disabled = false;
         });

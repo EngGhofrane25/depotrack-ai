@@ -3,269 +3,341 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Akıllı Depo Yönetimi (B2B SaaS)</title>
-    <!-- Google Fonts: Roboto -->
+    <title>DepoTrack AI - Akıllı Depo & Envanter Yönetim Sistemi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2">
-    
-    <!-- Mega Güncelleme Kütüphaneleri -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=3">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="script.js?v=2" defer></script>
-    
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0; padding: 0;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            transition: background-color 0.3s, color 0.3s;
-        }
-        
-        :root {
-            /* Light Mode Variables (Overrides style.css slightly for unity) */
-            --bg-color: #f8fafc;
-            --text-color: #1e293b;
-            --text-primary: #1e293b;
-            --text-secondary: #64748b;
-            --header-bg: #2c3e50;
-            --card-bg: #ffffff;
-            --surface-color: #ffffff;
-            --table-border: #e2e8f0;
-            --border-color: #e2e8f0;
-        }
-        
-        [data-theme="dark"] {
-            /* Premium Dark Mode (Slate / Vercel Style) */
-            --bg-color: #0f172a;           /* Slate 900 - Deep background */
-            --text-color: #f1f5f9;         /* Slate 100 - Main text */
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;     /* Slate 400 - Muted text */
-            --header-bg: #1e293b;          /* Slate 800 - Header */
-            --card-bg: #1e293b;            /* Slate 800 - Cards/Surfaces */
-            --surface-color: #1e293b;
-            --table-border: #334155;       /* Slate 700 - Borders */
-            --border-color: #334155;
-        }
-
-        .header {
-            background-color: var(--header-bg);
-            padding: 20px; color: white; display: flex; justify-content: space-between; align-items: center;
-        }
-        
-        .box-shadow {
-            background-color: var(--card-bg);
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        
-        /* Tablo Gece Modu Uyumları */
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid var(--table-border); padding: 8px; text-align: left; }
-        th { background-color: rgba(0,0,0,0.05); }
-        [data-theme="dark"] th { background-color: rgba(255,255,255,0.05); }
-
-        /* Login Overlay */
-        #login-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(135deg, #2c3e50, #3498db);
-            display: flex; justify-content: center; align-items: center;
-            z-index: 9999;
-        }
-        .login-box {
-            background: white; padding: 40px; border-radius: 10px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-            text-align: center; width: 300px;
-        }
-        .login-box h2 { color: #2c3e50; margin-top: 0; }
-        .login-box input {
-            width: 100%; padding: 10px; margin: 10px 0;
-            border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;
-        }
-        .login-box button {
-            width: 100%; padding: 10px; background-color: #60a5fa;
-            color: white; border: none; border-radius: 5px; cursor: pointer;
-            font-weight: bold; font-size: 16px;
-        }
-        
-        /* Modal (QR Code) */
-        .modal {
-            display: none; position: fixed; z-index: 1000; left: 0; top: 0;
-            width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);
-            justify-content: center; align-items: center;
-        }
-        .modal-content {
-            background-color: var(--card-bg); padding: 20px; border-radius: 8px;
-            text-align: center; width: 300px; position: relative;
-        }
-        .close-btn { position: absolute; top: 10px; right: 15px; cursor: pointer; font-size: 20px; }
-    </style>
+    <script src="script.js?v=3" defer></script>
 </head>
 <body>
 
-    <!-- 2. LOGIN OVERLAY -->
+    <!-- LOGIN OVERLAY -->
     <div id="login-overlay">
         <div class="login-box">
-            <h2>Hoş Geldiniz</h2>
-            <p style="color: #666; font-size: 14px;">Yönetici veya Görevli Girişi Yapınız</p>
-            <input type="text" id="username" placeholder="Kullanıcı Adı (admin / gorevli)">
-            <input type="password" id="password" placeholder="Şifre (12345)">
-            <button onclick="performLogin()">Giriş Yap</button>
-            <p id="login-error" style="color: red; font-size: 12px; display: none;"></p>
+            <div class="login-logo">
+                <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+            </div>
+            <h2>DepoTrack AI</h2>
+            <p class="login-subtitle">Akıllı Depo Yönetim Sistemine Hoş Geldiniz</p>
+            <input type="text" id="username" placeholder="Kullanıcı Adı" autocomplete="username">
+            <input type="password" id="password" placeholder="Şifre" autocomplete="current-password">
+            <button onclick="performLogin()" class="login-btn">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                Giriş Yap
+            </button>
+            <p id="login-error"></p>
         </div>
     </div>
 
-    <header class="header">
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <div style="background-color: white; color: var(--header-bg); padding: 5px 10px; border-radius: 5px; font-weight: bold; font-size: 20px;">📦</div>
-            <h1 style="margin: 0; font-size: 24px;">Akıllı Depo & Stok Yönetimi</h1>
+    <!-- HEADER -->
+    <header class="app-header" id="app-header">
+        <div class="header-left">
+            <div class="header-logo">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+            </div>
+            <div class="header-title-group">
+                <h1 class="header-title">DepoTrack AI</h1>
+                <span class="header-subtitle">Akıllı Envanter Yönetim Sistemi</span>
+            </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <button onclick="logout()" style="background-color: transparent; color: white; border: 1px solid white; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-size: 14px;">Çıkış Yap</button>
-            <div class="theme-toggle" onclick="toggleTheme()" title="Gece/Gündüz Modu" style="cursor: pointer;">🌙 Gece Modu</div>
+        <div class="header-right">
+            <div class="header-status">
+                <span class="status-dot"></span>
+                <span>Sistem Aktif</span>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Gece/Gündüz Modu">
+                <svg class="theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                <svg class="theme-icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
+            <button onclick="logout()" class="btn-logout">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                Çıkış
+            </button>
         </div>
     </header>
-    <main class="dashboard-container">
-        
-        
 
-        <!-- KRİTİK STOK VE SİPARİŞ MODÜLÜ (YENİ) -->
-        <section class="low-stock-alerts-section" id="low-stock-alerts-container" style="display: none; margin-bottom: 20px;">
-            <div class="box-shadow" style="background-color: var(--card-bg); border-left: 5px solid #ef6c00; border-radius: 8px; padding: 15px;">
-                <h3 style="color: #ffa726; margin-top: 0; margin-bottom: 10px; display: flex; align-items: center;">
-                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                    Kritik Stok Uyarıları (Toptancı Siparişi Bekliyor)
-                </h3>
-                
-                  <div style="background: #fff3e0; padding: 8px 12px; margin-bottom: 15px; border-radius: 5px; font-size: 13px; line-height: 1.5;">
-                        <strong style="color: #ef6c00;">Ürün Bazlı Toptancı E-Postası:</strong>
-                        Her ürün için tedarikçi adresini satırdaki kutuya girip <strong>Kaydet</strong>'e basın. Sipariş onaylandığında e-posta otomatik olarak kaydettiğiniz adrese iletilir.
-                    </div>
-                  <div id="low-stock-list" style="display: flex; gap: 10px; flex-wrap: wrap; flex-direction: column;">
-                    <!-- JavaScript ile eklenecek -->
+    <!-- MAIN DASHBOARD -->
+    <main class="dashboard">
+
+        <!-- SUMMARY CARDS -->
+        <section class="summary-cards" id="summary-cards">
+            <div class="summary-card" data-animate>
+                <div class="summary-icon summary-icon-blue">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                </div>
+                <div class="summary-info">
+                    <span class="summary-label">Toplam Ürün Çeşidi</span>
+                    <span class="summary-value" id="summary-total">5</span>
+                    <span class="summary-sub">Depodaki tüm ürünler</span>
+                </div>
+            </div>
+            <div class="summary-card" data-animate>
+                <div class="summary-icon summary-icon-amber">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                </div>
+                <div class="summary-info">
+                    <span class="summary-label">Kritik Stok</span>
+                    <span class="summary-value summary-value-warning" id="summary-critical">0</span>
+                    <span class="summary-sub">Eşik altında ürün</span>
+                </div>
+            </div>
+            <div class="summary-card" data-animate>
+                <div class="summary-icon summary-icon-green">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                </div>
+                <div class="summary-info">
+                    <span class="summary-label">Hareketler</span>
+                    <span class="summary-value summary-value-green" id="summary-movements">0</span>
+                    <span class="summary-sub">Son 24 saat</span>
+                </div>
+            </div>
+            <div class="summary-card" data-animate>
+                <div class="summary-icon summary-icon-purple">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                </div>
+                <div class="summary-info">
+                    <span class="summary-label">Aktif Partiler</span>
+                    <span class="summary-value summary-value-purple" id="summary-batches">0</span>
+                    <span class="summary-sub">Takipte olan parti</span>
                 </div>
             </div>
         </section>
 
-        <!-- 1. ANALİTİK DASHBOARD (CHART.JS) -->
-        <section class="analytics-section" style="margin-bottom: 20px;">
-            <div class="box-shadow" style="display: flex; gap: 20px; justify-content: space-between;">
-                <div style="flex: 1; text-align: center;">
-                    <h3 style="margin-top: 0;">📊 Canlı Stok Dağılımı</h3>
-                    <div style="height: 200px; display: flex; justify-content: center;">
-                        <canvas id="inventoryChart"></canvas>
+        <!-- STOCK CARDS -->
+        <section class="stock-cards-section" id="stock-cards-section">
+            <div class="card card-blue" id="card-elektronik" data-animate>
+                <div class="card-header-row">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                    </div>
+                    <span class="card-title">Elektronik</span>
+                    <span class="admin-only card-edit" onclick="promptEditStock('elektronik')" title="Stoğu Düzenle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </span>
+                </div>
+                <div class="card-value" id="stock-elektronik">--</div>
+                <div class="card-sub">Adet stokta</div>
+            </div>
+
+            <div class="card card-red" id="card-gida" data-animate>
+                <div class="card-header-row">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
+                    </div>
+                    <span class="card-title">Gıda</span>
+                    <span class="admin-only card-edit" onclick="promptEditStock('gida')" title="Stoğu Düzenle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </span>
+                </div>
+                <div class="card-value" id="stock-gida">--</div>
+                <div class="card-sub">Adet stokta</div>
+            </div>
+
+            <div class="card card-green" id="card-temizlik" data-animate>
+                <div class="card-header-row">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    </div>
+                    <span class="card-title">Temizlik</span>
+                    <span class="admin-only card-edit" onclick="promptEditStock('temizlik')" title="Stoğu Düzenle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </span>
+                </div>
+                <div class="card-value" id="stock-temizlik">--</div>
+                <div class="card-sub">Adet stokta</div>
+            </div>
+
+            <div class="card card-yellow" id="card-kirtasiye" data-animate>
+                <div class="card-header-row">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                    </div>
+                    <span class="card-title">Kırtasiye</span>
+                    <span class="admin-only card-edit" onclick="promptEditStock('kirtasiye')" title="Stoğu Düzenle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </span>
+                </div>
+                <div class="card-value" id="stock-kirtasiye">--</div>
+                <div class="card-sub">Adet stokta</div>
+            </div>
+
+            <div class="card card-purple" id="card-tekstil" data-animate>
+                <div class="card-header-row">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46L16 2 12 3.46 8 2 3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"></path></svg>
+                    </div>
+                    <span class="card-title">Tekstil</span>
+                    <span class="admin-only card-edit" onclick="promptEditStock('tekstil')" title="Stoğu Düzenle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </span>
+                </div>
+                <div class="card-value" id="stock-tekstil">--</div>
+                <div class="card-sub">Adet stokta</div>
+            </div>
+        </section>
+
+        <!-- CRITICAL STOCK ALERTS -->
+        <section class="low-stock-alerts-section" id="low-stock-alerts-container" style="display: none;">
+            <div class="alert-panel" data-animate>
+                <div class="alert-panel-header">
+                    <div class="alert-panel-title">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                        <span>Kritik Stok Uyarıları</span>
                     </div>
                 </div>
-                <div id="report-section" style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: rgba(52, 152, 219, 0.1); border-radius: 8px;">
-                    <h3 style="margin-top: 0; color: var(--text-primary);">Hızlı Raporlama</h3>
-                    <p style="text-align: center; color: var(--text-color); font-size: 14px; max-width: 80%;">
-                        Tüm stok hareketlerini, giriş çıkış loglarını ve mevcut envanter durumunu tek tıkla Excel'e aktarın.
-                    </p>
-                    <button onclick="downloadExcel()" style="background-color: #34d399; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 8px; margin-top: 10px;">
-                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                        Tüm Raporu Excel İndir (CSV)
+                <div class="alert-info-box">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    <span>Her ürün için tedarikçi e-postasını girip <strong>Kaydet</strong>'e basın. Sipariş onaylandığında e-posta otomatik olarak iletilir.</span>
+                </div>
+                <div id="low-stock-list" class="alert-list">
+                </div>
+            </div>
+        </section>
+
+        <!-- MAIN CONTENT: CAMERA + LOGS -->
+        <section class="main-grid">
+
+            <!-- LIVE AI CAMERA -->
+            <div class="camera-panel" data-animate>
+                <div class="camera-header">
+                    <div class="camera-title-group">
+                        <div class="camera-title">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                            <span>Canlı AI Kamera</span>
+                        </div>
+                        <div class="live-badge">
+                            <span class="live-dot"></span>
+                            CANLI
+                        </div>
+                    </div>
+                    <div class="camera-status-bar">
+                        <div class="camera-status-item">
+                            <span class="cam-status-dot cam-online"></span>
+                            <span>Kamera Çevrimiçi</span>
+                        </div>
+                        <div class="camera-status-item">
+                            <span class="cam-status-dot cam-active"></span>
+                            <span>AI Algılama Aktif</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="camera-viewport">
+                    <img id="camera-stream" src="http://127.0.0.1:5000/video_feed" alt="Kamera Kapalı veya Başlatılmadı">
+                </div>
+                <div class="camera-timeline">
+                    <div class="camera-timeline-header">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <span>Canlı Olaylar</span>
+                    </div>
+                    <div id="camera-timeline-list" class="camera-timeline-list">
+                        <div class="camera-timeline-empty">Henüz olay kaydı yok</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RECENT MOVEMENTS -->
+            <div class="movements-panel" data-animate>
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                        <span>Son Hareketler</span>
+                    </div>
+                    <select id="log-time-filter" onchange="fetchLiveStock()">
+                        <option value="5">Son 5</option>
+                        <option value="24h">24 Saat</option>
+                        <option value="2d">2 Gün</option>
+                        <option value="1m">1 Ay</option>
+                        <option value="3m">3 Ay</option>
+                    </select>
+                </div>
+                <ul class="log-list" id="log-list">
+                </ul>
+            </div>
+
+        </section>
+
+        <!-- ANALYTICS -->
+        <section class="analytics-grid" data-animate>
+            <div class="analytics-chart-panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                        <span>Stok Dağılımı</span>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="inventoryChart"></canvas>
+                </div>
+            </div>
+            <div id="report-section" class="analytics-report-panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                        <span>Hızlı Raporlama</span>
+                    </div>
+                </div>
+                <div class="report-body">
+                    <p>Tüm stok hareketlerini, giriş çıkış loglarını ve mevcut envanter durumunu tek tıkla Excel'e aktarın.</p>
+                    <button onclick="downloadExcel()" class="btn btn-success">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        Excel Raporu İndir
                     </button>
                 </div>
             </div>
         </section>
 
-        <!-- Üst Taraftaki Stok Kartları -->
-        <section class="stock-cards-section">
-            <div class="card card-blue" id="card-elektronik">
-                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-                    Elektronik 
-                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('elektronik')" title="Stoğu Düzenle">✏️</span>
+        <!-- AI INSIGHTS -->
+        <section class="insights-section" id="ai-insights-section" data-animate>
+            <div class="insights-panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"></path><path d="M20.24 7.76A10 10 0 0 0 12 2v10h10a10 10 0 0 0-1.76-4.24z" opacity="0.4"></path></svg>
+                        <span>AI İçgörüleri</span>
+                    </div>
+                    <div class="insights-badge">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                        Otomatik Analiz
+                    </div>
                 </div>
-                <div class="card-value" id="stock-elektronik">--</div>
-            </div>
-            
-            <div class="card card-red" id="card-gida">
-                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-                    Gıda 
-                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('gida')" title="Stoğu Düzenle">✏️</span>
+                <div id="ai-insights-list" class="insights-list">
+                    <div class="insights-loading">Veriler analiz ediliyor...</div>
                 </div>
-                <div class="card-value" id="stock-gida">--</div>
-            </div>
-            
-            <div class="card card-green" id="card-temizlik">
-                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-                    Temizlik 
-                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('temizlik')" title="Stoğu Düzenle">✏️</span>
-                </div>
-                <div class="card-value" id="stock-temizlik">--</div>
-            </div>
-            
-            <div class="card card-yellow" id="card-kirtasiye">
-                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-                    Kırtasiye 
-                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('kirtasiye')" title="Stoğu Düzenle">✏️</span>
-                </div>
-                <div class="card-value" id="stock-kirtasiye">--</div>
-            </div>
-            
-            <div class="card card-purple" id="card-tekstil">
-                <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-                    Tekstil 
-                    <span class="admin-only" style="cursor:pointer; font-size:14px; opacity:0.8;" onclick="promptEditStock('tekstil')" title="Stoğu Düzenle">✏️</span>
-                </div>
-                <div class="card-value" id="stock-tekstil">--</div>
             </div>
         </section>
 
-        <!-- Canlı Yayın ve Loglar -->
-        <section class="main-content-section">
-            
-            <div class="camera-container box-shadow">
-                <div class="section-header">
-                    <h2>Canlı Kamera Yayını</h2>
-                    <span class="live-badge">CANLI</span>
-                </div>
-                <div class="video-container" style="width: 100%; border-radius: 8px; overflow: hidden; background-color: #000;">
-                    <img id="camera-stream" src="http://127.0.0.1:5000/video_feed" alt="Kamera Kapalı veya Başlatılmadı" style="width: 100%; height: auto; display: block;">
+        <!-- BATCHES TABLE -->
+        <section class="batches-section" data-animate>
+            <div class="panel-header">
+                <div class="panel-title">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    <span>Tüm Partiler & SKT Yönetimi</span>
                 </div>
             </div>
-
-            <div class="log-container box-shadow">
-                <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
-                    <h2>Son Hareketler</h2>
-                    <select id="log-time-filter" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc; font-size: 0.9rem;" onchange="fetchLiveStock()">
-                        <option value="5">Son 5 Hareket</option>
-                        <option value="24h">Son 24 Saat</option>
-                        <option value="2d">Son 2 Gün</option>
-                        <option value="1m">Son 1 Ay</option>
-                          <option value="3m">Son 3 Ay</option>
-                    </select>
-                  </div>
-                <ul class="log-list" id="log-list">
-                    <!-- JavaScript ile eklenecek -->
-                </ul>
-            </div>
-
-        </section>
-        
-        <!-- Tüm SKT'ler ve İmha Paneli -->
-        <section class="all-batches-section box-shadow" style="margin-top: 20px; padding: 15px; border-radius: 8px; background-color: var(--card-bg);">
-            <div class="section-header">
-                <h2>Tüm Partiler ve SKT Yönetimi (İmha)</h2>
-            </div>
-            <div style="overflow-x:auto;">
-                <table style="width: 100%; border-collapse: collapse; text-align: left;" id="batches-table">
+            <div class="table-wrapper">
+                <table id="batches-table">
                     <thead>
-                        <tr style="border-bottom: 2px solid var(--border-color);">
-                            <th style="padding: 10px;">Batch ID</th>
-                            <th style="padding: 10px;">Ürün</th>
-                            <th style="padding: 10px;">Marka</th>
-                            <th style="padding: 10px;">Miktar</th>
-                            <th style="padding: 10px;">SKT</th>
-                            <th style="padding: 10px;">Durum</th>
-                            <th style="padding: 10px;">İşlem</th>
+                        <tr>
+                            <th>Batch ID</th>
+                            <th>Ürün</th>
+                            <th>Marka</th>
+                            <th>Miktar</th>
+                            <th>SKT</th>
+                            <th>Durum</th>
+                            <th>İşlem</th>
                         </tr>
                     </thead>
                     <tbody id="batches-list">
-                        <!-- JS ile dolacak -->
                     </tbody>
                 </table>
             </div>
@@ -273,13 +345,13 @@
 
     </main>
 
-    <!-- 5. QR KOD MODAL -->
+    <!-- QR CODE MODAL -->
     <div id="qrModal" class="modal">
         <div class="modal-content">
             <span class="close-btn" onclick="closeQRModal()">&times;</span>
-            <h3 id="qrModalTitle" style="margin-top: 0; color: var(--text-primary);">Karekod</h3>
-            <div id="qrcode" style="display: flex; justify-content: center; margin: 20px 0; background-color: white; padding: 10px; border-radius: 8px;"></div>
-            <p id="qrModalDesc" style="color: var(--text-secondary); font-size: 14px; margin-bottom: 0;"></p>
+            <h3 id="qrModalTitle">Karekod</h3>
+            <div id="qrcode"></div>
+            <p id="qrModalDesc"></p>
         </div>
     </div>
 
