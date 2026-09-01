@@ -43,4 +43,4 @@ Proje, herhangi bir Python veya kütüphane kurulumu gerektirmeden, **tamamen iz
 - Şifre: `12345`
 
 ---
-*Geliştirici:* Fatmanur Bay - Staj Projesi
+*Geliştirici:*Ghofrane Saadi - Fatmanur Bay - Staj Projesi
